@@ -90,6 +90,35 @@
             gap: 16px;
         }
 
+        .status-lojas {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 0 0 18px;
+        }
+
+        .status-loja {
+            padding: 8px 11px;
+            border-radius: 999px;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        .status-encontrada {
+            color: #166534;
+            background: #dcfce7;
+        }
+
+        .status-sem-resultado {
+            color: #854d0e;
+            background: #fef9c3;
+        }
+
+        .status-indisponivel {
+            color: #991b1b;
+            background: #fee2e2;
+        }
+
         .card {
             background: white;
             padding: 22px 24px;
@@ -203,6 +232,8 @@
 
         <p id="mensagem"></p>
 
+        <section id="status-lojas" class="status-lojas"></section>
+
         <section id="resultados"></section>
     </main>
 
@@ -210,6 +241,7 @@
         const formulario = document.querySelector("#form-busca");
         const campoTermo = document.querySelector("#termo");
         const mensagem = document.querySelector("#mensagem");
+        const statusLojas = document.querySelector("#status-lojas");
         const resultados = document.querySelector("#resultados");
         const botaoBusca = formulario.querySelector("button");
 
@@ -233,6 +265,7 @@
             botaoBusca.textContent = "Buscando...";
 
             mensagem.textContent = "Buscando...";
+            statusLojas.innerHTML = "";
             resultados.innerHTML = "";
 
             try {
@@ -244,7 +277,13 @@
                     throw new Error("Não foi possível buscar as ofertas.");
                 }
 
-                const ofertasRecebidas = await resposta.json();
+                const resultadoBusca = await resposta.json();
+                const ofertasRecebidas = Array.isArray(resultadoBusca)
+                    ? resultadoBusca
+                    : resultadoBusca.ofertas || [];
+                const lojas = Array.isArray(resultadoBusca)
+                    ? []
+                    : resultadoBusca.lojas || [];
                 const chaves = new Set();
                 const ofertas = ofertasRecebidas.filter(function (oferta) {
                     const chave = `${oferta.loja}|${oferta.titulo}|${oferta.preco}`;
@@ -260,6 +299,29 @@
                 mensagem.textContent = ofertas.length === 1
                     ? "1 oferta encontrada"
                     : `${ofertas.length} ofertas encontradas`;
+
+                statusLojas.innerHTML = lojas.map(function (loja) {
+                    const nomesStatus = {
+                        encontrada: "encontrada",
+                        sem_resultado: "sem oferta",
+                        indisponivel: "indisponível agora"
+                    };
+
+                    const classesStatus = {
+                        encontrada: "status-encontrada",
+                        sem_resultado: "status-sem-resultado",
+                        indisponivel: "status-indisponivel"
+                    };
+
+                    const status = loja.status || "indisponivel";
+                    const classe = classesStatus[status] || "status-indisponivel";
+                    const texto = nomesStatus[status] || "indisponível agora";
+                    const icone = status === "encontrada" ? "✓" : "!";
+
+                    return `<span class="status-loja ${classe}">
+                        ${icone} ${loja.nome}: ${texto}
+                    </span>`;
+                }).join("");
 
                 ofertas.forEach(function (oferta, indice) {
                     const card = document.createElement("article");

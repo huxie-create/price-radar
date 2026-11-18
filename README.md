@@ -4,6 +4,12 @@ Aplicação web para pesquisar produtos e comparar preços em lojas online.
 
 O usuário digita o nome de um produto e o PriceRadar pesquisa ofertas, filtra acessórios que não correspondem ao produto principal e mostra as melhores opções encontradas.
 
+## Demo online
+
+Use a aplicação publicada no Render:
+
+https://price-radar-arrd.onrender.com
+
 ## Demonstração
 
 O projeto possui uma interface web simples e uma API criada com FastAPI.
@@ -15,6 +21,7 @@ Fluxo principal:
 3. Os resultados são filtrados para evitar controles, capas, cabos e outros acessórios quando a intenção é encontrar o console.
 4. A aplicação escolhe a menor oferta disponível em cada loja.
 5. As ofertas são ordenadas pelo preço e exibidas na tela.
+6. A interface informa se cada loja encontrou uma oferta, não encontrou resultado ou ficou indisponível.
 
 ## Tecnologias
 
@@ -34,6 +41,8 @@ O projeto possui provedores para:
 - Magalu
 
 As lojas podem bloquear automações ou alterar o HTML da página. Por isso, em alguns momentos a aplicação pode retornar menos de três ofertas.
+
+Quando uma loja não puder ser consultada, ela aparece na interface como indisponível ou sem oferta. Isso diferencia uma busca sem resultado de uma falha temporária da loja.
 
 ## Como executar no Windows
 

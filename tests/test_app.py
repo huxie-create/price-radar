@@ -73,11 +73,19 @@ def test_buscar_retorna_ofertas(monkeypatch):
             "url": "https://example.com/xbox"
         }
     ]
+    resultado = {
+        "ofertas": ofertas,
+        "lojas": [
+            {"nome": "Amazon", "status": "encontrada"},
+            {"nome": "KaBuM", "status": "indisponivel"},
+            {"nome": "Magalu", "status": "sem_resultado"}
+        ]
+    }
 
     monkeypatch.setattr(
         main,
         "buscar_ofertas",
-        lambda termo: ofertas
+        lambda termo: resultado
     )
 
     with TestClient(main.app) as cliente:
@@ -87,7 +95,7 @@ def test_buscar_retorna_ofertas(monkeypatch):
         )
 
     assert resposta.status_code == 200
-    assert resposta.json() == ofertas
+    assert resposta.json() == resultado
 
 
 def test_cadastrar_produto(monkeypatch):

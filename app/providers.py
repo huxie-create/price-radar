@@ -270,6 +270,7 @@ def _buscar_magalu(pagina, termo):
 
 def _buscar_ofertas_sem_cache(termo):
     melhores_por_loja = []
+    status_lojas = []
 
     provedores = [
         ("Amazon", _buscar_amazon),
@@ -294,17 +295,40 @@ def _buscar_ofertas_sem_cache(termo):
                             key=lambda oferta: oferta["preco"]
                         )
                         melhores_por_loja.append(melhor_oferta)
+                        status_lojas.append({
+                            "nome": nome,
+                            "status": "encontrada"
+                        })
+                    else:
+                        status_lojas.append({
+                            "nome": nome,
+                            "status": "sem_resultado"
+                        })
                 except Exception as erro:
                     print(f"[{nome}] indisponível: {erro}")
+                    status_lojas.append({
+                        "nome": nome,
+                        "status": "indisponivel"
+                    })
                 finally:
                     contexto.close()
         finally:
             navegador.close()
 
-    return sorted(
-        melhores_por_loja,
-        key=lambda oferta: oferta["preco"]
-    )[:3]
+    return {
+        "ofertas": sorted(
+            melhores_por_loja,
+            key=lambda oferta: oferta["preco"]
+        )[:3],
+        "lojas": status_lojas
+    }
+
+
+def _copiar_resultado(resultado):
+    return {
+        "ofertas": [oferta.copy() for oferta in resultado["ofertas"]],
+        "lojas": [loja.copy() for loja in resultado["lojas"]]
+    }
 
 
 def buscar_ofertas(termo):
@@ -315,10 +339,10 @@ def buscar_ofertas(termo):
         resultado_em_cache = _cache_resultados.get(chave)
 
         if resultado_em_cache:
-            validade, ofertas = resultado_em_cache
+            validade, resultado = resultado_em_cache
 
             if validade > agora:
-                return [oferta.copy() for oferta in ofertas]
+                return _copiar_resultado(resultado)
 
     with _busca_lock:
         agora = monotonic()
@@ -327,17 +351,17 @@ def buscar_ofertas(termo):
             resultado_em_cache = _cache_resultados.get(chave)
 
             if resultado_em_cache:
-                validade, ofertas = resultado_em_cache
+                validade, resultado = resultado_em_cache
 
                 if validade > agora:
-                    return [oferta.copy() for oferta in ofertas]
+                    return _copiar_resultado(resultado)
 
-        ofertas = _buscar_ofertas_sem_cache(termo)
+        resultado = _buscar_ofertas_sem_cache(termo)
 
         with _cache_lock:
             _cache_resultados[chave] = (
                 monotonic() + CACHE_TTL_SECONDS,
-                ofertas
+                resultado
             )
 
-        return [oferta.copy() for oferta in ofertas]
+        return _copiar_resultado(resultado)
