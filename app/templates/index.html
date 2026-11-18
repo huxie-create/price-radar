@@ -181,6 +181,12 @@
             margin: 0 0 14px;
         }
 
+        .atualizacao {
+            color: #94a3b8;
+            font-size: 13px;
+            margin: -8px 0 18px;
+        }
+
         @media (max-width: 600px) {
             .container {
                 padding-top: 34px;
@@ -231,6 +237,7 @@
         </form>
 
         <p id="mensagem"></p>
+        <p id="atualizacao" class="atualizacao"></p>
 
         <section id="status-lojas" class="status-lojas"></section>
 
@@ -241,6 +248,7 @@
         const formulario = document.querySelector("#form-busca");
         const campoTermo = document.querySelector("#termo");
         const mensagem = document.querySelector("#mensagem");
+        const atualizacao = document.querySelector("#atualizacao");
         const statusLojas = document.querySelector("#status-lojas");
         const resultados = document.querySelector("#resultados");
         const botaoBusca = formulario.querySelector("button");
@@ -265,6 +273,7 @@
             botaoBusca.textContent = "Buscando...";
 
             mensagem.textContent = "Buscando...";
+            atualizacao.textContent = "Atualizando preços...";
             statusLojas.innerHTML = "";
             resultados.innerHTML = "";
 
@@ -299,6 +308,11 @@
                 mensagem.textContent = ofertas.length === 1
                     ? "1 oferta encontrada"
                     : `${ofertas.length} ofertas encontradas`;
+
+                atualizacao.textContent = `Atualizado em ${new Intl.DateTimeFormat(
+                    "pt-BR",
+                    { dateStyle: "short", timeStyle: "short" }
+                ).format(new Date())}`;
 
                 statusLojas.innerHTML = lojas.map(function (loja) {
                     const nomesStatus = {
@@ -353,6 +367,7 @@
                 });
             } catch (erro) {
                 mensagem.textContent = "Não foi possível carregar as ofertas.";
+                atualizacao.textContent = "Não foi possível atualizar agora.";
             } finally {
                 buscaEmAndamento = false;
                 botaoBusca.disabled = false;

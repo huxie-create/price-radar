@@ -10,6 +10,16 @@ Use a aplicação publicada no Render:
 
 https://price-radar-arrd.onrender.com
 
+![Tela do PriceRadar](docs/price-radar-demo.png)
+
+## Destaques
+
+- Busca ofertas em Amazon, KaBuM e Magalu.
+- Mostra a menor oferta encontrada por loja.
+- Informa quando uma loja está indisponível ou sem resultado.
+- Evita resultados duplicados e mantém cache temporário das buscas.
+- Possui API documentada com FastAPI e interface web responsiva.
+
 ## Demonstração
 
 O projeto possui uma interface web simples e uma API criada com FastAPI.
@@ -208,11 +218,10 @@ price-radar/
 - O projeto é um MVP educacional e de portfólio.
 - Para uma versão de produção, o ideal é usar APIs oficiais, criar cache, limitar requisições e monitorar alterações nas páginas.
 
-## Próximos passos
+## Próximas melhorias
 
-- Adicionar testes automatizados para os filtros e endpoints.
-- Mostrar na interface quando uma loja estiver indisponível.
-- Adicionar cache para evitar abrir o navegador em toda pesquisa.
-- Criar uma imagem Docker para facilitar o deploy.
+- Salvar histórico de preços e exibir um gráfico de variação.
+- Criar alertas quando um produto atingir o preço desejado.
+- Adicionar filtros por loja, preço e disponibilidade.
 - Substituir scraping por APIs oficiais quando houver acesso.
 
