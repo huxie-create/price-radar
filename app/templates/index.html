@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PriceRadar</title>
+
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background: linear-gradient(135deg, #eef4ff 0%, #f8fafc 55%, #eefbf5 100%);
+            color: #1f2937;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 940px;
+            margin: 0 auto;
+            padding: 58px 20px 80px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #2563eb;
+            font-size: 42px;
+            letter-spacing: -1px;
+            margin: 0 0 10px;
+        }
+
+        .subtitulo {
+            text-align: center;
+            color: #64748b;
+            font-size: 17px;
+            margin: 0 0 34px;
+        }
+
+        form {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 24px;
+            padding: 8px;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px #1e3a8a12;
+        }
+
+        input {
+            flex: 1;
+            min-width: 0;
+            padding: 14px 16px;
+            border: 2px solid transparent;
+            border-radius: 11px;
+            font-size: 16px;
+            outline: none;
+            color: #172554;
+        }
+
+        input:focus {
+            border-color: #bfdbfe;
+            background: #f8fbff;
+        }
+
+        button {
+            padding: 14px 22px;
+            border: none;
+            border-radius: 11px;
+            background: #2563eb;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.2s;
+        }
+
+        button:hover {
+            background: #1d4ed8;
+            transform: translateY(-1px);
+        }
+
+        button:disabled {
+            background: #93c5fd;
+            cursor: wait;
+            transform: none;
+        }
+
+        #resultados {
+            display: grid;
+            gap: 16px;
+        }
+
+        .card {
+            background: white;
+            padding: 22px 24px;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            box-shadow: 0 8px 24px #0f172a12;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 28px #0f172a1c;
+        }
+
+        .card-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: #64748b;
+            font-size: 15px;
+            margin-bottom: 12px;
+        }
+
+        .menor-preco {
+            color: #16a34a;
+            font-weight: bold;
+            background: #dcfce7;
+            border-radius: 999px;
+            padding: 6px 10px;
+        }
+
+        h2 {
+            color: #172554;
+            font-size: 22px;
+            line-height: 1.25;
+            margin: 0 0 18px;
+        }
+
+        .preco {
+            font-size: 26px;
+            font-weight: bold;
+            color: #111827;
+            margin: 0 0 18px;
+        }
+
+        a {
+            color: #2563eb;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        #mensagem {
+            min-height: 22px;
+            color: #64748b;
+            font-size: 15px;
+            margin: 0 0 14px;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding-top: 34px;
+            }
+
+            h1 {
+                font-size: 34px;
+            }
+
+            form {
+                flex-direction: column;
+            }
+
+            button {
+                width: 100%;
+            }
+
+            .card {
+                padding: 18px;
+            }
+
+            h2 {
+                font-size: 19px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <main class="container">
+        <h1>PriceRadar</h1>
+
+        <p class="subtitulo">
+            Encontre o melhor preço para qualquer produto
+        </p>
+
+        <form id="form-busca">
+            <input
+                id="termo"
+                type="text"
+                placeholder="Digite um produto..."
+                required
+            >
+
+            <button type="submit">
+                Buscar
+            </button>
+        </form>
+
+        <p id="mensagem"></p>
+
+        <section id="resultados"></section>
+    </main>
+
+    <script>
+        const formulario = document.querySelector("#form-busca");
+        const campoTermo = document.querySelector("#termo");
+        const mensagem = document.querySelector("#mensagem");
+        const resultados = document.querySelector("#resultados");
+        const botaoBusca = formulario.querySelector("button");
+
+        let buscaEmAndamento = false;
+
+        formulario.addEventListener("submit", async function (evento) {
+            evento.preventDefault();
+
+            if (buscaEmAndamento) {
+                return;
+            }
+
+            const termo = campoTermo.value.trim();
+
+            if (!termo) {
+                return;
+            }
+
+            buscaEmAndamento = true;
+            botaoBusca.disabled = true;
+            botaoBusca.textContent = "Buscando...";
+
+            mensagem.textContent = "Buscando...";
+            resultados.innerHTML = "";
+
+            try {
+                const resposta = await fetch(
+                    `/buscar?termo=${encodeURIComponent(termo)}`
+                );
+
+                if (!resposta.ok) {
+                    throw new Error("Não foi possível buscar as ofertas.");
+                }
+
+                const ofertasRecebidas = await resposta.json();
+                const chaves = new Set();
+                const ofertas = ofertasRecebidas.filter(function (oferta) {
+                    const chave = `${oferta.loja}|${oferta.titulo}|${oferta.preco}`;
+
+                    if (chaves.has(chave)) {
+                        return false;
+                    }
+
+                    chaves.add(chave);
+                    return true;
+                });
+
+                mensagem.textContent = ofertas.length === 1
+                    ? "1 oferta encontrada"
+                    : `${ofertas.length} ofertas encontradas`;
+
+                ofertas.forEach(function (oferta, indice) {
+                    const card = document.createElement("article");
+
+                    card.className = "card";
+
+                    const destaque = indice === 0
+                        ? '<span class="menor-preco">Menor preço</span>'
+                        : "";
+
+                    card.innerHTML = `
+                        <div class="card-top">
+                            <span>${oferta.loja}</span>
+                            ${destaque}
+                        </div>
+
+                        <h2>${oferta.titulo}</h2>
+
+                        <p class="preco">
+                            R$ ${oferta.preco.toFixed(2).replace(".", ",")}
+                        </p>
+
+                        <a href="${oferta.url}" target="_blank" rel="noopener noreferrer">
+                            Ver oferta →
+                        </a>
+                    `;
+
+                    resultados.appendChild(card);
+                });
+            } catch (erro) {
+                mensagem.textContent = "Não foi possível carregar as ofertas.";
+            } finally {
+                buscaEmAndamento = false;
+                botaoBusca.disabled = false;
+                botaoBusca.textContent = "Buscar";
+            }
+        });
+    </script>
+</body>
+</html>
