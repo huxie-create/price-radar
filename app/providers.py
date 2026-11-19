@@ -361,6 +361,31 @@ def _buscar_amazon(pagina, termo):
     return ofertas
 
 
+def _buscar_mercado_livre(termo):
+    slug = quote("-".join(_termo_para_busca(termo).split()), safe="")
+    resposta = requests.get(f"https://lista.mercadolivre.com.br/{slug}", timeout=5)
+    resposta.raise_for_status()
+    pagina = BeautifulSoup(resposta.content, "html.parser")
+    ofertas = []
+    for card in pagina.select(".poly-card")[:40]:
+        link = card.select_one("a.poly-component__title[href]")
+        preco = card.select_one(".poly-price__current .andes-money-amount")
+        if not link or not preco:
+            continue
+        titulo = link.get_text(" ", strip=True)
+        inteiro = preco.select_one(".andes-money-amount__fraction")
+        centavos = preco.select_one(".andes-money-amount__cents")
+        if not inteiro or not _produto_relevante(titulo, termo, _deve_priorizar_console(termo)):
+            continue
+        valor = inteiro.get_text(strip=True).replace(".", "") + "." + (
+            centavos.get_text(strip=True) if centavos else "00"
+        )
+        if re.fullmatch(r"\d+\.\d{2}", valor) and float(valor) > 0:
+            ofertas.append({"loja": "Mercado Livre", "titulo": titulo,
+                            "preco": float(valor), "url": urljoin(resposta.url, link["href"])})
+    return ofertas
+
+
 def _buscar_kabum(pagina, termo):
     termo_busca = _termo_para_busca(termo)
     busca = quote(termo_busca, safe="").replace("%20", "-")
@@ -455,6 +480,8 @@ def _normalizar_vendedor_bing(vendedor):
     )
 
     nomes = {
+        "mercado livre": "Mercado Livre",
+        "mercadolivre": "Mercado Livre",
         "amazon": "Amazon",
         "amazon com br": "Amazon",
         "americanas": "Americanas",
@@ -969,6 +996,7 @@ def _executar_provedor_em_navegador(buscar_provedor, termo):
 def _buscar_ofertas_sem_cache(termo):
     candidatas = []
     nomes_das_lojas = (
+        "Mercado Livre",
         "Amazon",
         "Americanas",
         "KaBuM",
@@ -985,6 +1013,7 @@ def _buscar_ofertas_sem_cache(termo):
     # As fontes principais rodam em paralelo. Assim uma loja lenta não segura
     # as outras e a API consegue devolver as primeiras ofertas rapidamente.
     provedores = [
+        ("Mercado Livre", lambda: _buscar_mercado_livre(termo)),
         (
             "Amazon",
             lambda: _executar_provedor_em_navegador(_buscar_amazon, termo)
@@ -993,7 +1022,7 @@ def _buscar_ofertas_sem_cache(termo):
         ("Carrefour", lambda: _buscar_carrefour_api(termo))
     ]
 
-    with ThreadPoolExecutor(max_workers=3) as executor:
+    with ThreadPoolExecutor(max_workers=len(provedores)) as executor:
         tarefas = {
             executor.submit(buscar_provedor): nome
             for nome, buscar_provedor in provedores
