@@ -16,6 +16,7 @@ https://price-radar-arrd.onrender.com
 
 - Busca ofertas em Amazon, Americanas, KaBuM, Magalu, Ponto, Carrefour e Pichau.
 - Mostra a menor oferta encontrada por loja.
+- Corrige erros comuns de digitação em nomes de produtos.
 - Informa quando uma loja está indisponível ou sem resultado.
 - Evita resultados duplicados e mantém cache temporário das buscas.
 - Possui API documentada com FastAPI e interface web responsiva.

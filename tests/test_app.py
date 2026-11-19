@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from app import main
 from app.providers import (
     _deve_priorizar_console,
+    _corrigir_termo,
     _parse_preco_oferta,
     _parse_preco_brl,
     _produto_relevante,
@@ -28,6 +29,11 @@ def test_parse_preco_oferta_prioriza_preco_no_pix():
 def test_busca_curta_por_xbox_prioriza_console():
     assert _deve_priorizar_console("Xbox") is True
     assert _termo_para_busca("Xbox") == "Xbox console"
+
+
+def test_corrige_erros_comuns_no_termo():
+    assert _corrigir_termo("playstaiton 5") == "playstation 5"
+    assert _corrigir_termo("xobx") == "xbox"
 
 
 def test_busca_por_playstation_5_prioriza_console():

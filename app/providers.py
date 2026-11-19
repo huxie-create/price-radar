@@ -1,5 +1,6 @@
 import re
 import unicodedata
+from difflib import get_close_matches
 from threading import Lock
 from time import monotonic
 from urllib.parse import quote, quote_plus, urljoin
@@ -53,6 +54,63 @@ def _normalizar_termo(termo):
     return " ".join(texto.split())
 
 
+_PALAVRAS_DE_PRODUTO = (
+    "playstation",
+    "xbox",
+    "nintendo",
+    "switch",
+    "console",
+    "oled",
+    "slim",
+    "digital",
+    "series",
+    "notebook",
+    "celular",
+    "smartphone",
+    "monitor",
+    "televisao",
+    "fone",
+    "headset",
+    "teclado",
+    "mouse",
+    "airfryer",
+    "geladeira",
+    "cafeteira",
+    "camera",
+    "impressora",
+    "memoria",
+    "placa",
+    "video",
+    "ssd"
+)
+
+
+def _corrigir_termo(termo):
+    palavras_corrigidas = []
+
+    for palavra in termo.strip().split():
+        palavra_normalizada = _normalizar_termo(palavra)
+
+        if len(palavra_normalizada) < 4 or palavra_normalizada.isdigit():
+            palavras_corrigidas.append(palavra_normalizada)
+            continue
+
+        correspondencias = get_close_matches(
+            palavra_normalizada,
+            _PALAVRAS_DE_PRODUTO,
+            n=1,
+            cutoff=0.74
+        )
+
+        palavras_corrigidas.append(
+            correspondencias[0]
+            if correspondencias
+            else palavra_normalizada
+        )
+
+    return " ".join(palavras_corrigidas)
+
+
 _PERFIS_DE_CONSOLE = {
     "xbox": {
         "busca": "Xbox console",
@@ -102,7 +160,7 @@ _PERFIS_DE_CONSOLE = {
 
 
 def _perfil_de_console(termo):
-    termo_normalizado = _normalizar_termo(termo)
+    termo_normalizado = _normalizar_termo(_corrigir_termo(termo))
     return _PERFIS_DE_CONSOLE.get(termo_normalizado)
 
 
@@ -111,6 +169,7 @@ def _deve_priorizar_console(termo):
 
 
 def _termo_para_busca(termo):
+    termo = _corrigir_termo(termo)
     perfil = _perfil_de_console(termo)
 
     if perfil:
@@ -121,7 +180,7 @@ def _termo_para_busca(termo):
 
 def _produto_relevante(titulo, termo, priorizar_console=False):
     titulo_normalizado = _normalizar_termo(titulo)
-    termo_normalizado = _normalizar_termo(termo)
+    termo_normalizado = _normalizar_termo(_corrigir_termo(termo))
 
     perfil = _perfil_de_console(termo) if priorizar_console else None
 
@@ -604,7 +663,8 @@ def _buscar_ofertas_sem_cache(termo):
             melhores_por_loja,
             key=lambda oferta: oferta["preco"]
         )[:3],
-        "lojas": status_lojas
+        "lojas": status_lojas,
+        "termo_corrigido": _corrigir_termo(termo)
     }
 
 
@@ -616,7 +676,8 @@ def _copiar_resultado(resultado):
 
 
 def buscar_ofertas(termo):
-    chave = _normalizar_termo(termo)
+    termo_corrigido = _corrigir_termo(termo)
+    chave = _normalizar_termo(termo_corrigido)
     agora = monotonic()
 
     with _cache_lock:
@@ -640,7 +701,7 @@ def buscar_ofertas(termo):
                 if validade > agora:
                     return _copiar_resultado(resultado)
 
-        resultado = _buscar_ofertas_sem_cache(termo)
+        resultado = _buscar_ofertas_sem_cache(termo_corrigido)
 
         with _cache_lock:
             _cache_resultados[chave] = (

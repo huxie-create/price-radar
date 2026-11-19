@@ -314,6 +314,18 @@
                     { dateStyle: "short", timeStyle: "short" }
                 ).format(new Date())}`;
 
+                const termoCorrigido = Array.isArray(resultadoBusca)
+                    ? ""
+                    : resultadoBusca.termo_corrigido || "";
+
+                if (
+                    termoCorrigido
+                    && termoCorrigido.toLowerCase() !== termo.toLowerCase()
+                ) {
+                    atualizacao.textContent +=
+                        ` · Buscando por "${termoCorrigido}"`;
+                }
+
                 statusLojas.innerHTML = lojas.map(function (loja) {
                     const nomesStatus = {
                         encontrada: "encontrada",
