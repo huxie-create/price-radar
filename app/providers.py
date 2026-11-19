@@ -671,7 +671,8 @@ def _buscar_ofertas_sem_cache(termo):
 def _copiar_resultado(resultado):
     return {
         "ofertas": [oferta.copy() for oferta in resultado["ofertas"]],
-        "lojas": [loja.copy() for loja in resultado["lojas"]]
+        "lojas": [loja.copy() for loja in resultado["lojas"]],
+        "termo_corrigido": resultado.get("termo_corrigido")
     }
 
 
