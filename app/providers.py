@@ -1,4 +1,5 @@
 import re
+import unicodedata
 from threading import Lock
 from time import monotonic
 from urllib.parse import quote, quote_plus, urljoin
@@ -43,41 +44,97 @@ def _parse_ultimo_preco_brl(texto):
 
 
 def _normalizar_termo(termo):
-    return " ".join(termo.lower().split())
+    texto = unicodedata.normalize("NFKD", termo.lower())
+    texto = "".join(
+        caractere
+        for caractere in texto
+        if not unicodedata.combining(caractere)
+    )
+    return " ".join(texto.split())
+
+
+_PERFIS_DE_CONSOLE = {
+    "xbox": {
+        "busca": "Xbox console",
+        "identificadores": ("xbox",),
+    },
+    "xbox one": {
+        "busca": "Xbox One console",
+        "identificadores": ("xbox one", "xbox"),
+    },
+    "xbox series": {
+        "busca": "Xbox Series console",
+        "identificadores": ("xbox series", "xbox"),
+    },
+    "xbox series s": {
+        "busca": "Xbox Series S console",
+        "identificadores": ("xbox series s", "xbox series", "xbox"),
+    },
+    "xbox series x": {
+        "busca": "Xbox Series X console",
+        "identificadores": ("xbox series x", "xbox series", "xbox"),
+    },
+    "playstation 4": {
+        "busca": "PlayStation 4 console",
+        "identificadores": ("playstation 4", "ps4"),
+    },
+    "playstation 5": {
+        "busca": "PlayStation 5 console",
+        "identificadores": ("playstation 5", "playstation5", "ps5"),
+    },
+    "ps4": {
+        "busca": "PlayStation 4 console",
+        "identificadores": ("playstation 4", "ps4"),
+    },
+    "ps5": {
+        "busca": "PlayStation 5 console",
+        "identificadores": ("playstation 5", "playstation5", "ps5"),
+    },
+    "nintendo switch": {
+        "busca": "Nintendo Switch console",
+        "identificadores": ("nintendo switch", "switch"),
+    },
+    "nintendo switch oled": {
+        "busca": "Nintendo Switch OLED console",
+        "identificadores": ("nintendo switch oled", "nintendo switch"),
+    },
+}
+
+
+def _perfil_de_console(termo):
+    termo_normalizado = _normalizar_termo(termo)
+    return _PERFIS_DE_CONSOLE.get(termo_normalizado)
 
 
 def _deve_priorizar_console(termo):
-    termo_normalizado = _normalizar_termo(termo)
-
-    buscas_de_console = {
-        "xbox",
-        "xbox one",
-        "xbox series",
-        "xbox series s",
-        "xbox series x"
-    }
-
-    return termo_normalizado in buscas_de_console
+    return _perfil_de_console(termo) is not None
 
 
 def _termo_para_busca(termo):
-    if _deve_priorizar_console(termo):
-        return f"{termo.strip()} console"
+    perfil = _perfil_de_console(termo)
+
+    if perfil:
+        return perfil["busca"]
 
     return termo.strip()
 
 
 def _produto_relevante(titulo, termo, priorizar_console=False):
-    titulo_normalizado = titulo.lower()
-    termo_normalizado = termo.lower()
+    titulo_normalizado = _normalizar_termo(titulo)
+    termo_normalizado = _normalizar_termo(termo)
+
+    perfil = _perfil_de_console(termo) if priorizar_console else None
 
     palavras = [
         palavra
         for palavra in re.findall(r"[a-z0-9]+", termo_normalizado)
-        if len(palavra) >= 3
+        if len(palavra) >= 3 or palavra.isdigit()
     ]
 
-    if not all(palavra in titulo_normalizado for palavra in palavras):
+    if not perfil and not all(
+        palavra in titulo_normalizado
+        for palavra in palavras
+    ):
         return False
 
     acessorios = {
@@ -104,7 +161,18 @@ def _produto_relevante(titulo, termo, priorizar_console=False):
         "película",
         "pelicula",
         "suporte",
-        "volante"
+        "volante",
+        "jogo",
+        "jogos",
+        "game",
+        "games",
+        "gift card",
+        "cartao presente",
+        "assinatura",
+        "playstation plus",
+        "ps plus",
+        "dualshock",
+        "dualsense"
     }
 
     tem_acessorio = any(
@@ -116,18 +184,33 @@ def _produto_relevante(titulo, termo, priorizar_console=False):
     if tem_acessorio:
         return False
 
-    if priorizar_console:
-        indicadores_de_console = {
-            "console",
-            "xbox one",
-            "xbox series s",
-            "xbox series x"
-        }
+    if perfil and not any(
+        identificador in titulo_normalizado
+        for identificador in perfil["identificadores"]
+    ):
+        return False
 
-        if not any(
-            indicador in titulo_normalizado
-            for indicador in indicadores_de_console
-        ):
+    if perfil and any(
+        palavra in titulo_normalizado
+        for palavra in ("jogo", "jogos", "game", "games", "gift card")
+    ):
+        return False
+
+    if perfil and any(
+        acessorio in titulo_normalizado
+        for acessorio in (
+            "controle",
+            "controlador",
+            "controller",
+            "headset",
+            "volante",
+            "capa",
+            "case",
+            "pelicula",
+            "película",
+            "carregador"
+        )
+    ):
             return False
 
     return True

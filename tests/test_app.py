@@ -18,6 +18,11 @@ def test_busca_curta_por_xbox_prioriza_console():
     assert _termo_para_busca("Xbox") == "Xbox console"
 
 
+def test_busca_por_playstation_5_prioriza_console():
+    assert _deve_priorizar_console("PlayStation 5") is True
+    assert _termo_para_busca("PlayStation 5") == "PlayStation 5 console"
+
+
 def test_filtro_rejeita_controle_quando_busca_console():
     titulo = "Controlador sem fio Xbox Series X"
 
@@ -34,6 +39,26 @@ def test_filtro_aceita_console_quando_busca_xbox():
     assert _produto_relevante(
         titulo,
         "Xbox",
+        priorizar_console=True
+    ) is True
+
+
+def test_filtro_rejeita_jogo_quando_busca_playstation_5():
+    titulo = "Jogo Marvel Spider-Man 2 PS5"
+
+    assert _produto_relevante(
+        titulo,
+        "PlayStation 5",
+        priorizar_console=True
+    ) is False
+
+
+def test_filtro_aceita_console_playstation_5():
+    titulo = "Sony PlayStation 5 Slim 1TB Edição Digital"
+
+    assert _produto_relevante(
+        titulo,
+        "PlayStation 5",
         priorizar_console=True
     ) is True
 
