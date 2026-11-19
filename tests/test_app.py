@@ -35,12 +35,21 @@ def test_busca_curta_por_xbox_prioriza_console():
 def test_corrige_erros_comuns_no_termo():
     assert _corrigir_termo("playstaiton 5") == "playstation 5"
     assert _corrigir_termo("xobx") == "xbox"
+    assert _corrigir_termo("livrso") == "livros"
 
 
 def test_normaliza_nomes_das_lojas_no_bing_shopping():
     assert _normalizar_vendedor_bing("Magazine Luiza") == "Magalu"
     assert _normalizar_vendedor_bing("KaBuM!") == "KaBuM"
     assert _normalizar_vendedor_bing("Ponto Frio") == "Ponto"
+    assert _normalizar_vendedor_bing("Amazon.com.br") == "Amazon"
+    assert _normalizar_vendedor_bing("Americanas.com") == "Americanas"
+
+
+def test_filtro_aceita_singular_quando_busca_plural():
+    titulo = "Livro O Hobbit Edição Especial"
+
+    assert _produto_relevante(titulo, "Livros") is True
 
 
 def test_busca_por_playstation_5_prioriza_console():

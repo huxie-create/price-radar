@@ -83,12 +83,40 @@ _PALAVRAS_DE_PRODUTO = (
     "geladeira",
     "cafeteira",
     "camera",
+    "cameras",
     "impressora",
     "memoria",
     "placa",
     "video",
-    "ssd"
+    "ssd",
+    "livro",
+    "livros",
+    "kindle",
+    "tablet",
+    "smartwatch",
+    "videogame",
+    "videogames",
+    "jogo",
+    "jogos",
+    "controle",
+    "controles",
+    "aspirador",
+    "microondas",
+    "bicicleta",
+    "bicicletas",
+    "tenis",
+    "sapato",
+    "sapatos",
+    "cadeira",
+    "mesa"
 )
+
+_CORRECOES_DE_TIPOS = {
+    "livrso": "livros",
+    "livroos": "livros",
+    "playstaiton": "playstation",
+    "xobx": "xbox"
+}
 
 
 def _corrigir_termo(termo):
@@ -99,6 +127,12 @@ def _corrigir_termo(termo):
 
         if len(palavra_normalizada) < 4 or palavra_normalizada.isdigit():
             palavras_corrigidas.append(palavra_normalizada)
+            continue
+
+        if palavra_normalizada in _CORRECOES_DE_TIPOS:
+            palavras_corrigidas.append(
+                _CORRECOES_DE_TIPOS[palavra_normalizada]
+            )
             continue
 
         correspondencias = get_close_matches(
@@ -184,6 +218,18 @@ def _termo_para_busca(termo):
     return termo.strip()
 
 
+def _variantes_de_palavra(palavra):
+    """Aceita pequenas variações de singular e plural nos títulos."""
+    variantes = {palavra}
+
+    if len(palavra) >= 5 and palavra.endswith("s"):
+        variantes.add(palavra[:-1])
+    elif len(palavra) >= 5:
+        variantes.add(f"{palavra}s")
+
+    return variantes
+
+
 def _produto_relevante(titulo, termo, priorizar_console=False):
     titulo_normalizado = _normalizar_termo(titulo)
     termo_normalizado = _normalizar_termo(_corrigir_termo(termo))
@@ -197,7 +243,10 @@ def _produto_relevante(titulo, termo, priorizar_console=False):
     ]
 
     if not perfil and not all(
-        palavra in titulo_normalizado
+        any(
+            variante in titulo_normalizado
+            for variante in _variantes_de_palavra(palavra)
+        )
         for palavra in palavras
     ):
         return False
@@ -472,6 +521,11 @@ def _normalizar_vendedor_bing(vendedor):
     )
 
     nomes = {
+        "amazon": "Amazon",
+        "amazon com br": "Amazon",
+        "americanas": "Americanas",
+        "americanas com": "Americanas",
+        "americanas com br": "Americanas",
         "kabum": "KaBuM",
         "magalu": "Magalu",
         "magazine luiza": "Magalu",
@@ -483,7 +537,10 @@ def _normalizar_vendedor_bing(vendedor):
     }
 
     for nome, loja in nomes.items():
-        if vendedor_normalizado == nome:
+        if (
+            vendedor_normalizado == nome
+            or vendedor_normalizado.startswith(f"{nome} ")
+        ):
             return loja
 
     return None
@@ -880,9 +937,12 @@ def _buscar_ofertas_sem_cache(termo):
         print(f"[Carrefour] indisponível: {erro}")
         status_por_loja["Carrefour"]["status"] = "indisponivel"
 
+    # O Bing também serve como plano B para Amazon e Americanas quando elas
+    # bloqueiam o navegador direto. Isso evita mostrar zero ofertas só porque
+    # uma fonte principal ficou indisponível naquela tentativa.
     lojas_para_fallback = {
         nome
-        for nome in ("KaBuM", "Magalu", "Ponto", "Carrefour", "Pichau")
+        for nome in nomes_das_lojas
         if status_por_loja[nome]["status"] != "encontrada"
     }
 
