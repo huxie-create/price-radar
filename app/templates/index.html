@@ -221,6 +221,9 @@
         const atualizacao = document.querySelector("#atualizacao");
         const resultados = document.querySelector("#resultados");
         const botaoBusca = formulario.querySelector("button");
+        const apiBase = window.location.hostname.endsWith(".vercel.app")
+            ? "https://price-radar-arrd.onrender.com"
+            : "";
 
         let buscaEmAndamento = false;
 
@@ -247,7 +250,7 @@
 
             try {
                 const resposta = await fetch(
-                    `/buscar?termo=${encodeURIComponent(termo)}`
+                    `${apiBase}/buscar?termo=${encodeURIComponent(termo)}`
                 );
 
                 if (!resposta.ok) {

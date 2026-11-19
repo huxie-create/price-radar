@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -16,6 +17,12 @@ from app.providers import buscar_ofertas
 
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"https://[a-z0-9-]+\.vercel\.app",
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 BASE_DIR = Path(__file__).resolve().parent
 TESTAR_URL_HABILITADO = os.getenv(
     "ENABLE_TEST_URL",
