@@ -1055,6 +1055,25 @@ def _executar_provedor_em_navegador(buscar_provedor, termo):
             navegador.close()
 
 
+def _tres_menores_distintas(candidatas):
+    ofertas = []
+    vistas = set()
+    for oferta in sorted(candidatas, key=lambda item: (item["preco"], item["url"])):
+        loja = oferta["loja"]
+        tokens = _tokens_de_busca(_normalizar_termo(oferta["titulo"]))
+        chaves = {(loja, "url", oferta["url"]), (loja, "titulo", tuple(tokens))}
+        # Códigos como NETNV128ME4 identificam anúncios com títulos diferentes.
+        for token in tokens:
+            if re.fullmatch(r"[a-z]{2,}\d+[a-z]+\d+[a-z0-9]*", token):
+                chaves.add((loja, "modelo", token, oferta["preco"]))
+        if vistas.isdisjoint(chaves):
+            ofertas.append(oferta)
+        vistas.update(chaves)
+        if len(ofertas) == 3:
+            break
+    return ofertas
+
+
 def _buscar_ofertas_sem_cache(termo):
     candidatas = []
     nomes_das_lojas = (
@@ -1075,6 +1094,7 @@ def _buscar_ofertas_sem_cache(termo):
     # As fontes principais rodam em paralelo. Assim uma loja lenta não segura
     # as outras e a API consegue devolver as primeiras ofertas rapidamente.
     provedores = [
+        ("Buscapé", lambda: _buscar_buscape(termo)),
         ("Mercado Livre", lambda: _buscar_com_promobit(
             "Mercado Livre", "mercado-livre", termo, lambda: _buscar_mercado_livre(termo))),
         (
@@ -1100,10 +1120,13 @@ def _buscar_ofertas_sem_cache(termo):
 
                 if ofertas_da_loja:
                     candidatas.extend(ofertas_da_loja)
-                    status_por_loja[nome]["status"] = "encontrada"
             except Exception as erro:
                 print(f"[{nome}] indisponível: {erro}")
-                status_por_loja[nome]["status"] = "indisponivel"
+                if nome in status_por_loja:
+                    status_por_loja[nome]["status"] = "indisponivel"
+
+    for oferta in candidatas:
+        status_por_loja[oferta["loja"]]["status"] = "encontrada"
 
     # O Bing também serve como plano B para Amazon e Americanas quando elas
     # bloqueiam o navegador direto. Isso evita mostrar zero ofertas só porque
@@ -1128,26 +1151,8 @@ def _buscar_ofertas_sem_cache(termo):
             candidatas.append(oferta)
             status_por_loja[oferta["loja"]]["status"] = "encontrada"
 
-    if len(candidatas) < 3:
-        try:
-            for oferta in _buscar_buscape(termo):
-                candidatas.append(oferta)
-                status_por_loja[oferta["loja"]]["status"] = "encontrada"
-        except requests.RequestException as erro:
-            print(f"[Buscapé] indisponível: {erro}")
-
-    ofertas = []
-    vistas = set()
-    for oferta in sorted(candidatas, key=lambda item: (item["preco"], item["url"])):
-        chave = (oferta["loja"], oferta["url"])
-        if chave not in vistas:
-            ofertas.append(oferta)
-            vistas.add(chave)
-        if len(ofertas) == 3:
-            break
-
     return {
-        "ofertas": ofertas,
+        "ofertas": _tres_menores_distintas(candidatas),
         "lojas": [
             status_por_loja[nome]
             for nome in nomes_das_lojas

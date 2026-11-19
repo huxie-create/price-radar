@@ -17,6 +17,22 @@ def test_parse_preco_brl():
     assert _parse_preco_brl("Por apenas R$ 1.999,90") == 1999.90
 
 
+def test_anuncios_repetidos_nao_ocupam_tres_vagas():
+    from app.providers import _tres_menores_distintas
+
+    ofertas = [
+        dict(loja=loja, titulo=titulo, preco=preco, url=str(i))
+        for i, (loja, titulo, preco) in enumerate([
+            ("Magalu", "SSD Netcore NETNV128ME4", 176.64),
+            ("Magalu", "SSD 128 GB NETNV128ME4 com garantia", 176.64),
+            ("Magalu", "SSD Netcore NETNV128ME4", 176.64),
+            ("KaBuM", "SSD Alltek", 177.39),
+            ("KaBuM", "SSD Winmemory", 222.18),
+        ])
+    ]
+    assert _tres_menores_distintas(ofertas[::-1]) == [ofertas[i] for i in (0, 3, 4)]
+
+
 def test_parse_preco_oferta_prioriza_preco_no_pix():
     texto = (
         "Console PlayStation 5\n"
