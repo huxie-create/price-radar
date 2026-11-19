@@ -372,6 +372,157 @@ def _buscar_magalu(pagina, termo):
     return []
 
 
+def _parse_preco_oferta(texto):
+    texto_minusculo = texto.lower()
+
+    for marcador in ("por", "à vista", "a vista", "no pix"):
+        indice = texto_minusculo.rfind(marcador)
+
+        if indice >= 0:
+            preco = _parse_preco_brl(texto[indice:])
+
+            if preco is not None:
+                return preco
+
+    return _parse_preco_brl(texto)
+
+
+def _buscar_loja_generica(
+    pagina,
+    termo,
+    loja,
+    url,
+    seletor_de_cards
+):
+    pagina.goto(url, wait_until="domcontentloaded", timeout=30000)
+    pagina.wait_for_timeout(2500)
+
+    corpo = pagina.locator("body").inner_text().lower()
+
+    if any(
+        mensagem in corpo
+        for mensagem in (
+            "verificando se você é humano",
+            "executando verificação de segurança",
+            "cloudflare",
+            "algo deu errado"
+        )
+    ):
+        raise RuntimeError("a loja apresentou uma verificação de segurança")
+
+    if any(
+        mensagem in corpo
+        for mensagem in (
+            "nenhum produto encontrado",
+            "não encontramos resultados",
+            "não encontramos nenhum produto"
+        )
+    ):
+        return []
+
+    pagina.wait_for_selector(seletor_de_cards, timeout=15000)
+    cards = pagina.locator(seletor_de_cards)
+    ofertas = []
+    chaves = set()
+
+    for indice in range(min(cards.count(), 20)):
+        card = cards.nth(indice)
+        texto = card.inner_text().strip()
+
+        if not texto:
+            continue
+
+        linhas = [linha.strip() for linha in texto.splitlines() if linha.strip()]
+        titulo = max(
+            (
+                linha
+                for linha in linhas
+                if len(linha) >= 15
+                and _parse_preco_brl(linha) is None
+                and "avaliação" not in linha.lower()
+                and "parcel" not in linha.lower()
+                and "frete" not in linha.lower()
+            ),
+            key=len,
+            default=None
+        )
+        preco = _parse_preco_oferta(texto)
+        href = card.get_attribute("href")
+
+        if not href:
+            links = card.locator("a")
+
+            if links.count():
+                href = links.first.get_attribute("href")
+
+        if not titulo or preco is None or not href:
+            continue
+
+        if not _produto_relevante(
+            titulo,
+            termo,
+            _deve_priorizar_console(termo)
+        ):
+            continue
+
+        chave = (titulo.lower(), preco, href)
+
+        if chave in chaves:
+            continue
+
+        chaves.add(chave)
+        ofertas.append({
+            "loja": loja,
+            "titulo": titulo,
+            "preco": preco,
+            "url": urljoin(url, href)
+        })
+
+    return ofertas
+
+
+def _buscar_ponto(pagina, termo):
+    termo_busca = _termo_para_busca(termo)
+    busca = quote_plus(termo_busca)
+    url = f"https://www.pontofrio.com.br/busca?query={busca}"
+
+    return _buscar_loja_generica(
+        pagina,
+        termo,
+        "Ponto",
+        url,
+        'a[href*="/p/"], a[href*="/produto/"]'
+    )
+
+
+def _buscar_carrefour(pagina, termo):
+    termo_busca = _termo_para_busca(termo)
+    busca = quote_plus(termo_busca)
+    url = f"https://www.carrefour.com.br/busca?query={busca}"
+
+    return _buscar_loja_generica(
+        pagina,
+        termo,
+        "Carrefour",
+        url,
+        'article, a[href*="/produto/"], a[href*="/p/"]'
+    )
+
+
+def _buscar_pichau(pagina, termo):
+    termo_busca = _termo_para_busca(termo)
+    busca = quote_plus(termo_busca)
+    url = f"https://www.pichau.com.br/search?q={busca}"
+
+    return _buscar_loja_generica(
+        pagina,
+        termo,
+        "Pichau",
+        url,
+        'article, [data-testid*="product"], [class*="productCard"], a:has(h2), a:has(h3)'
+    )
+
+
 def _buscar_ofertas_sem_cache(termo):
     melhores_por_loja = []
     status_lojas = []
@@ -379,7 +530,10 @@ def _buscar_ofertas_sem_cache(termo):
     provedores = [
         ("Amazon", _buscar_amazon),
         ("KaBuM", _buscar_kabum),
-        ("Magalu", _buscar_magalu)
+        ("Magalu", _buscar_magalu),
+        ("Ponto", _buscar_ponto),
+        ("Carrefour", _buscar_carrefour),
+        ("Pichau", _buscar_pichau)
     ]
 
     with sync_playwright() as playwright:

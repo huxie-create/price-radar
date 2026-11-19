@@ -49,6 +49,9 @@ O projeto possui provedores para:
 - Amazon
 - KaBuM
 - Magalu
+- Ponto
+- Carrefour
+- Pichau
 
 As lojas podem bloquear automações ou alterar o HTML da página. Por isso, em alguns momentos a aplicação pode retornar menos de três ofertas.
 
