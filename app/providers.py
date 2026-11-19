@@ -537,7 +537,7 @@ def _buscar_carrefour_api(termo):
     url = "https://www.carrefour.com.br/api/io/_v/api/intelligent-search/product_search"
     resposta = requests.get(
         url,
-        params={"query": _termo_para_busca(termo)},
+        params={"query": _corrigir_termo(termo)},
         headers={
             "Accept": "application/json",
             "Referer": "https://www.carrefour.com.br/",
@@ -836,6 +836,17 @@ def _buscar_ofertas_sem_cache(termo):
                         termo,
                         lojas_para_fallback
                     )
+
+                    if not ofertas_fallback:
+                        termo_alternativo = _corrigir_termo(termo)
+
+                        if _termo_para_busca(termo) != termo_alternativo:
+                            ofertas_fallback = _buscar_bing_shopping(
+                                pagina,
+                                termo_alternativo,
+                                lojas_para_fallback
+                            )
+
                     melhores_fallback = {}
 
                     for oferta in ofertas_fallback:
