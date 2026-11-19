@@ -53,6 +53,16 @@ def test_filtro_rejeita_jogo_quando_busca_playstation_5():
     ) is False
 
 
+def test_filtro_rejeita_produto_de_jogo_com_nome_do_console():
+    titulo = "Grand Theft Auto VI - PlayStation 5"
+
+    assert _produto_relevante(
+        titulo,
+        "PlayStation 5",
+        priorizar_console=True
+    ) is False
+
+
 def test_filtro_aceita_console_playstation_5():
     titulo = "Sony PlayStation 5 Slim 1TB Edição Digital"
 

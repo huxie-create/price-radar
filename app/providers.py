@@ -196,6 +196,27 @@ def _produto_relevante(titulo, termo, priorizar_console=False):
     ):
         return False
 
+    if perfil and not any(
+        indicador in titulo_normalizado
+        for indicador in (
+            "console",
+            "slim",
+            "digital edition",
+            "edicao digital",
+            "disc edition",
+            "edicao com disco",
+            "com disco",
+            "standard edition",
+            "512gb",
+            "825gb",
+            "1tb",
+            "2tb",
+            "oled",
+            "bundle"
+        )
+    ):
+        return False
+
     if perfil and any(
         acessorio in titulo_normalizado
         for acessorio in (
