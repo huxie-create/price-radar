@@ -86,19 +86,19 @@ _PERFIS_DE_CONSOLE = {
     },
     "xbox one": {
         "busca": "Xbox One console",
-        "identificadores": ("xbox one", "xbox"),
+        "identificadores": ("xbox one",),
     },
     "xbox series": {
         "busca": "Xbox Series console",
-        "identificadores": ("xbox series", "xbox"),
+        "identificadores": ("xbox series",),
     },
     "xbox series s": {
         "busca": "Xbox Series S console",
-        "identificadores": ("xbox series s", "xbox series", "xbox"),
+        "identificadores": ("xbox series s",),
     },
     "xbox series x": {
         "busca": "Xbox Series X console",
-        "identificadores": ("xbox series x", "xbox series", "xbox"),
+        "identificadores": ("xbox series x",),
     },
     "playstation 4": {
         "busca": "PlayStation 4 console",
@@ -122,7 +122,7 @@ _PERFIS_DE_CONSOLE = {
     },
     "nintendo switch oled": {
         "busca": "Nintendo Switch OLED console",
-        "identificadores": ("nintendo switch oled", "nintendo switch"),
+        "identificadores": ("switch oled",),
     },
 }
 
@@ -158,6 +158,13 @@ def _variantes_de_palavra(palavra):
     return variantes
 
 
+def _tokens_de_busca(texto):
+    # "128 GB" e "128GB" representam a mesma capacidade.
+    texto = re.sub(r"(\d)\s+(tb|gb|mb|ml|kg|hz|mah|l)\b", r"\1\2", texto)
+    texto = re.sub(r"(?<=\d),(?=\d)", ".", texto)
+    return re.findall(r"\d+\.\d+[a-z]*|[a-z0-9]+", texto)
+
+
 def _produto_relevante(titulo, termo, priorizar_console=False):
     titulo_normalizado = _normalizar_termo(titulo)
     termo_normalizado = _normalizar_termo(_corrigir_termo(termo))
@@ -166,17 +173,15 @@ def _produto_relevante(titulo, termo, priorizar_console=False):
 
     palavras = [
         palavra
-        for palavra in re.findall(r"[a-z0-9]+", termo_normalizado)
-        if len(palavra) >= 3 or palavra.isdigit()
+        for palavra in _tokens_de_busca(termo_normalizado)
+        if palavra not in {"de", "do", "da", "dos", "das", "com", "para", "e"}
     ]
 
-    if not perfil and not all(
-        any(
-            variante in titulo_normalizado
-            for variante in _variantes_de_palavra(palavra)
-        )
+    tokens_titulo = set(_tokens_de_busca(titulo_normalizado))
+    if not perfil and (not palavras or not all(
+        tokens_titulo.intersection(_variantes_de_palavra(palavra))
         for palavra in palavras
-    ):
+    )):
         return False
 
     acessorios = {
@@ -253,7 +258,7 @@ def _produto_relevante(titulo, termo, priorizar_console=False):
         return False
 
     if perfil and not any(
-        identificador in titulo_normalizado
+        re.search(r"\b" + re.escape(identificador) + r"\b", titulo_normalizado)
         for identificador in perfil["identificadores"]
     ):
         return False
