@@ -547,6 +547,28 @@ def _normalizar_vendedor_bing(vendedor):
     return None
 
 
+def _buscar_buscape(termo):
+    consulta = " ".join(_tokens_de_busca(_termo_para_busca(termo).lower()))
+    resposta = requests.get("https://www.buscape.com.br/search", params={"q": consulta}, timeout=6)
+    resposta.raise_for_status()
+    pagina = BeautifulSoup(resposta.content, "html.parser")
+    ofertas = []
+    for card in pagina.select('a[data-testid="product-card::card"][href]'):
+        nome = card.select_one('[data-area="name"]')
+        valor = card.select_one('[data-testid="product-card::price"]')
+        vendedor = card.select_one('[data-area="merchant"]')
+        if not all((nome, valor, vendedor)):
+            continue
+        titulo = nome.get_text(" ", strip=True)
+        preco = _parse_preco_brl(valor.get_text(" ", strip=True))
+        loja = _normalizar_vendedor_bing(vendedor.get_text(" ", strip=True))
+        url = urljoin("https://www.buscape.com.br", card["href"])
+        if (loja and preco and url.startswith("https://www.buscape.com.br/lead?")
+                and _produto_relevante(titulo, termo, _deve_priorizar_console(termo))):
+            ofertas.append(dict(loja=loja, titulo=titulo, preco=preco, url=url, fonte="Buscapé"))
+    return ofertas
+
+
 def _buscar_bing_shopping_http(termo, lojas_alvo):
     """Lê o HTML público do Bing sem abrir um navegador pesado."""
     termo_busca = _termo_para_busca(termo)
@@ -1105,6 +1127,14 @@ def _buscar_ofertas_sem_cache(termo):
         for oferta in ofertas_fallback:
             candidatas.append(oferta)
             status_por_loja[oferta["loja"]]["status"] = "encontrada"
+
+    if len(candidatas) < 3:
+        try:
+            for oferta in _buscar_buscape(termo):
+                candidatas.append(oferta)
+                status_por_loja[oferta["loja"]]["status"] = "encontrada"
+        except requests.RequestException as erro:
+            print(f"[Buscapé] indisponível: {erro}")
 
     ofertas = []
     vistas = set()
