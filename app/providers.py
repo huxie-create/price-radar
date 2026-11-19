@@ -7,6 +7,7 @@ from time import monotonic
 from urllib.parse import quote, quote_plus, urljoin
 
 import requests
+from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
 
@@ -15,6 +16,7 @@ BROWSER_NAVIGATION_TIMEOUT_MS = 15000
 BROWSER_SELECTOR_TIMEOUT_MS = 8000
 BROWSER_WAIT_MS = 1200
 CARREFOUR_TIMEOUT_SECONDS = 5
+BING_TIMEOUT_SECONDS = 8
 _cache_resultados = {}
 _cache_lock = Lock()
 _busca_lock = Lock()
@@ -546,6 +548,73 @@ def _normalizar_vendedor_bing(vendedor):
     return None
 
 
+def _buscar_bing_shopping_http(termo, lojas_alvo):
+    """Lê o HTML público do Bing sem abrir um navegador pesado."""
+    termo_busca = _termo_para_busca(termo)
+    url = f"https://www.bing.com/shop?q={quote_plus(termo_busca)}"
+    resposta = requests.get(
+        url,
+        headers={
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/131.0.0.0 Safari/537.36"
+            )
+        },
+        timeout=BING_TIMEOUT_SECONDS
+    )
+    resposta.raise_for_status()
+
+    soup = BeautifulSoup(resposta.text, "html.parser")
+    cards = soup.select("li.br-item")
+    ofertas = []
+    chaves = set()
+
+    for card in cards[:40]:
+        titulo_elemento = card.select_one(".br-pdItemName")
+        preco_elemento = card.select_one(".pd-price")
+        vendedor_elemento = card.select_one(".br-sellersCite")
+
+        if not titulo_elemento or not preco_elemento or not vendedor_elemento:
+            continue
+
+        titulo = titulo_elemento.get_text(" ", strip=True)
+        vendedor = vendedor_elemento.get_text(" ", strip=True)
+        loja = _normalizar_vendedor_bing(vendedor)
+        preco = _parse_preco_brl(
+            preco_elemento.get_text(" ", strip=True)
+        )
+        href = card.get("data-url")
+
+        if loja not in lojas_alvo or preco is None:
+            continue
+
+        if not _produto_relevante(
+            titulo,
+            termo,
+            _deve_priorizar_console(termo)
+        ):
+            continue
+
+        href = urljoin("https://www.bing.com", href) if href else url
+        chave = (loja, titulo.lower(), preco, href)
+
+        if chave in chaves:
+            continue
+
+        chaves.add(chave)
+        ofertas.append({
+            "loja": loja,
+            "titulo": titulo,
+            "preco": preco,
+            "url": href
+        })
+
+    return ofertas
+
+
 def _buscar_bing_shopping(pagina, termo, lojas_alvo):
     termo_busca = _termo_para_busca(termo)
     url = f"https://www.bing.com/shop?q={quote_plus(termo_busca)}"
@@ -555,7 +624,10 @@ def _buscar_bing_shopping(pagina, termo, lojas_alvo):
         wait_until="domcontentloaded",
         timeout=BROWSER_NAVIGATION_TIMEOUT_MS
     )
-    pagina.wait_for_timeout(BROWSER_WAIT_MS)
+    pagina.wait_for_selector(
+        "li.br-item",
+        timeout=BROWSER_SELECTOR_TIMEOUT_MS
+    )
 
     cards = pagina.locator("li.br-item")
     ofertas = []
@@ -947,48 +1019,60 @@ def _buscar_ofertas_sem_cache(termo):
     }
 
     if lojas_para_fallback:
-        with sync_playwright() as playwright:
-            navegador = playwright.chromium.launch(headless=True)
+        try:
+            ofertas_fallback = _buscar_bing_shopping_http(
+                termo,
+                lojas_para_fallback
+            )
+        except Exception as erro:
+            print(f"[Bing Shopping HTTP] indisponível: {erro}")
+            ofertas_fallback = []
 
-            try:
-                contexto = navegador.new_context(locale="pt-BR")
-                pagina = contexto.new_page()
-                pagina.set_default_timeout(BROWSER_SELECTOR_TIMEOUT_MS)
-                pagina.set_default_navigation_timeout(
-                    BROWSER_NAVIGATION_TIMEOUT_MS
-                )
+        # Mantém o navegador como plano B para quando o Bing bloquear a
+        # requisição HTTP ou devolver uma página sem cards.
+        if not ofertas_fallback:
+            with sync_playwright() as playwright:
+                navegador = playwright.chromium.launch(headless=True)
 
                 try:
-                    ofertas_fallback = _buscar_bing_shopping(
-                        pagina,
-                        termo,
-                        lojas_para_fallback
+                    contexto = navegador.new_context(locale="pt-BR")
+                    pagina = contexto.new_page()
+                    pagina.set_default_timeout(BROWSER_SELECTOR_TIMEOUT_MS)
+                    pagina.set_default_navigation_timeout(
+                        BROWSER_NAVIGATION_TIMEOUT_MS
                     )
 
-                    melhores_fallback = {}
-
-                    for oferta in ofertas_fallback:
-                        loja = oferta["loja"]
-                        oferta_atual = melhores_fallback.get(loja)
-
-                        if (
-                            oferta_atual is None
-                            or oferta["preco"] < oferta_atual["preco"]
-                        ):
-                            melhores_fallback[loja] = oferta
-
-                    for loja in lojas_para_fallback:
-                        melhor_oferta = melhores_fallback.get(loja)
-
-                        if melhor_oferta:
-                            melhores_por_loja.append(melhor_oferta)
-                            status_por_loja[loja]["status"] = "encontrada"
-                except Exception as erro:
-                    print(f"[Bing Shopping] indisponível: {erro}")
+                    try:
+                        ofertas_fallback = _buscar_bing_shopping(
+                            pagina,
+                            termo,
+                            lojas_para_fallback
+                        )
+                    except Exception as erro:
+                        print(f"[Bing Shopping] indisponível: {erro}")
+                    finally:
+                        contexto.close()
                 finally:
-                    contexto.close()
-            finally:
-                navegador.close()
+                    navegador.close()
+
+        melhores_fallback = {}
+
+        for oferta in ofertas_fallback:
+            loja = oferta["loja"]
+            oferta_atual = melhores_fallback.get(loja)
+
+            if (
+                oferta_atual is None
+                or oferta["preco"] < oferta_atual["preco"]
+            ):
+                melhores_fallback[loja] = oferta
+
+        for loja in lojas_para_fallback:
+            melhor_oferta = melhores_fallback.get(loja)
+
+            if melhor_oferta:
+                melhores_por_loja.append(melhor_oferta)
+                status_por_loja[loja]["status"] = "encontrada"
 
     return {
         "ofertas": sorted(
