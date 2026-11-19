@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from app import main
 from app.providers import (
+    _buscar_americanas_api,
     _deve_priorizar_console,
     _corrigir_termo,
     _parse_preco_oferta,
@@ -50,6 +51,50 @@ def test_filtro_aceita_singular_quando_busca_plural():
     titulo = "Livro O Hobbit Edição Especial"
 
     assert _produto_relevante(titulo, "Livros") is True
+
+
+def test_filtro_aceita_capa_como_parte_de_um_livro():
+    titulo = "Livro de ficção Capa Brochura"
+
+    assert _produto_relevante(titulo, "Livros") is True
+
+
+def test_busca_americanas_api_retorna_oferta(monkeypatch):
+    class RespostaFake:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "data": {
+                    "search": {
+                        "products": {
+                            "edges": [{
+                                "node": {
+                                    "name": "Livro de ficção Capa Brochura",
+                                    "link": "/livro-ficcao/p",
+                                    "offers": {
+                                        "offers": [{
+                                            "price": 39.90,
+                                            "quantity": 10
+                                        }]
+                                    }
+                                }
+                            }]
+                        }
+                    }
+                }
+            }
+
+    monkeypatch.setattr(
+        "app.providers.requests.get",
+        lambda *args, **kwargs: RespostaFake()
+    )
+
+    ofertas = _buscar_americanas_api("livros")
+
+    assert ofertas[0]["loja"] == "Americanas"
+    assert ofertas[0]["preco"] == 39.90
 
 
 def test_busca_por_playstation_5_prioriza_console():

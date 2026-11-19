@@ -1,3 +1,4 @@
+import json
 import re
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -17,6 +18,7 @@ BROWSER_SELECTOR_TIMEOUT_MS = 8000
 BROWSER_WAIT_MS = 1200
 CARREFOUR_TIMEOUT_SECONDS = 5
 BING_TIMEOUT_SECONDS = 8
+AMERICANAS_TIMEOUT_SECONDS = 8
 _cache_resultados = {}
 _cache_lock = Lock()
 _busca_lock = Lock()
@@ -296,6 +298,10 @@ def _produto_relevante(titulo, termo, priorizar_console=False):
         "dualshock",
         "dualsense"
     }
+
+    # Em livros, "capa" descreve a edição e não um acessório separado.
+    if "livro" in titulo_normalizado:
+        acessorios.discard("capa")
 
     tem_acessorio = any(
         acessorio in titulo_normalizado
@@ -924,6 +930,96 @@ def _buscar_americanas(pagina, termo):
     )
 
 
+def _buscar_americanas_api(termo):
+    """Consulta a busca pública que a própria página da Americanas utiliza."""
+    termo_busca = _termo_para_busca(termo)
+    channel = json.dumps(
+        {"salesChannel": "1", "regionId": ""},
+        separators=(",", ":")
+    )
+    variaveis = {
+        "first": 12,
+        "after": "0",
+        "sort": "score_desc",
+        "term": termo_busca,
+        "selectedFacets": [
+            {"key": "fuzzy", "value": "0"},
+            {"key": "operator", "value": "and"},
+            {"key": "channel", "value": channel},
+            {"key": "locale", "value": "pt-BR"}
+        ],
+        "sponsoredCount": 3,
+        "_postalCode": ""
+    }
+    resposta = requests.get(
+        "https://www.americanas.com.br/api/graphql",
+        params={
+            "operationName": "ClientManyProductsQueryWithSearchId",
+            "operationHash": (
+                "cb154b9b1216966884f4d325dd7f61928dc3a7ec"
+            ),
+            "variables": json.dumps(
+                variaveis,
+                separators=(",", ":")
+            )
+        },
+        headers={
+            "Accept": "application/json",
+            "Referer": "https://www.americanas.com.br/",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/131.0.0.0 Safari/537.36"
+            )
+        },
+        timeout=AMERICANAS_TIMEOUT_SECONDS
+    )
+    resposta.raise_for_status()
+    dados = resposta.json()
+    edges = (
+        dados.get("data", {})
+        .get("search", {})
+        .get("products", {})
+        .get("edges", [])
+    )
+    ofertas = []
+
+    for edge in edges[:20]:
+        produto = edge.get("node", {})
+        titulo = produto.get("name", "").strip()
+
+        if not titulo or not _produto_relevante(
+            titulo,
+            termo,
+            _deve_priorizar_console(termo)
+        ):
+            continue
+
+        precos_disponiveis = [
+            oferta.get("price")
+            for oferta in produto.get("offers", {}).get("offers", [])
+            if oferta.get("quantity", 0) > 0
+            and oferta.get("price", 0) > 0
+        ]
+
+        if not precos_disponiveis:
+            continue
+
+        href = produto.get("link")
+
+        if not href:
+            continue
+
+        ofertas.append({
+            "loja": "Americanas",
+            "titulo": titulo,
+            "preco": min(precos_disponiveis),
+            "url": urljoin("https://www.americanas.com.br", href)
+        })
+
+    return ofertas
+
+
 def _executar_provedor_em_navegador(buscar_provedor, termo):
     with sync_playwright() as playwright:
         navegador = playwright.chromium.launch(headless=True)
@@ -963,17 +1059,16 @@ def _buscar_ofertas_sem_cache(termo):
     # As duas fontes mais confiáveis rodam em paralelo. As demais ficam no
     # fallback público, evitando abrir várias páginas que costumam bloquear robôs.
     provedores = [
-        ("Amazon", _buscar_amazon),
-        ("Americanas", _buscar_americanas)
+        (
+            "Amazon",
+            lambda: _executar_provedor_em_navegador(_buscar_amazon, termo)
+        ),
+        ("Americanas", lambda: _buscar_americanas_api(termo))
     ]
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         tarefas = {
-            executor.submit(
-                _executar_provedor_em_navegador,
-                buscar_provedor,
-                termo
-            ): nome
+            executor.submit(buscar_provedor): nome
             for nome, buscar_provedor in provedores
         }
 
