@@ -28,7 +28,7 @@ O projeto possui uma interface web simples e uma API criada com FastAPI.
 Fluxo principal:
 
 1. O usuário informa um produto, como `Xbox` ou `Nintendo Switch OLED`.
-2. O backend pesquisa as lojas configuradas usando Playwright.
+2. O backend pesquisa as lojas configuradas usando Playwright e, quando necessário, usa fontes públicas de busca como fallback.
 3. Os resultados são filtrados para evitar controles, capas, cabos e outros acessórios quando a intenção é encontrar o console.
 4. A aplicação escolhe a menor oferta disponível em cada loja.
 5. As ofertas são ordenadas pelo preço e exibidas na tela.
@@ -55,7 +55,9 @@ O projeto possui provedores para:
 - Carrefour
 - Pichau
 
-As lojas podem bloquear automações ou alterar o HTML da página. Por isso, em alguns momentos a aplicação pode retornar menos de três ofertas.
+Carrefour usa uma busca pública de catálogo. Magalu, Ponto e Pichau podem usar o fallback do Bing Shopping quando a página própria bloquear automações. KaBuM continua sendo consultada diretamente e também pode aparecer pelo fallback.
+
+As lojas podem bloquear automações, alterar o HTML da página ou não aparecer no agregador. Por isso, em alguns momentos a aplicação pode retornar menos de três ofertas.
 
 Quando uma loja não puder ser consultada, ela aparece na interface como indisponível ou sem oferta. Isso diferencia uma busca sem resultado de uma falha temporária da loja.
 

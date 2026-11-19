@@ -6,6 +6,7 @@ from app.providers import (
     _corrigir_termo,
     _parse_preco_oferta,
     _parse_preco_brl,
+    _normalizar_vendedor_bing,
     _produto_relevante,
     _termo_para_busca
 )
@@ -34,6 +35,12 @@ def test_busca_curta_por_xbox_prioriza_console():
 def test_corrige_erros_comuns_no_termo():
     assert _corrigir_termo("playstaiton 5") == "playstation 5"
     assert _corrigir_termo("xobx") == "xbox"
+
+
+def test_normaliza_nomes_das_lojas_no_bing_shopping():
+    assert _normalizar_vendedor_bing("Magazine Luiza") == "Magalu"
+    assert _normalizar_vendedor_bing("KaBuM!") == "KaBuM"
+    assert _normalizar_vendedor_bing("Ponto Frio") == "Ponto"
 
 
 def test_busca_por_playstation_5_prioriza_console():
@@ -89,6 +96,26 @@ def test_filtro_aceita_console_playstation_5():
         "PlayStation 5",
         priorizar_console=True
     ) is True
+
+
+def test_filtro_aceita_console_com_controle_incluso():
+    titulo = "Console PlayStation 5 Slim com Controle DualSense"
+
+    assert _produto_relevante(
+        titulo,
+        "PlayStation 5",
+        priorizar_console=True
+    ) is True
+
+
+def test_filtro_rejeita_acessorio_compatível_com_console():
+    titulo = "HD Externo Portátil 500GB Compatível com Console PlayStation 5"
+
+    assert _produto_relevante(
+        titulo,
+        "PlayStation 5",
+        priorizar_console=True
+    ) is False
 
 
 def test_inicio_retorna_pagina():

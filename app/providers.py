@@ -5,6 +5,7 @@ from threading import Lock
 from time import monotonic
 from urllib.parse import quote, quote_plus, urljoin
 
+import requests
 from playwright.sync_api import sync_playwright
 
 
@@ -220,6 +221,7 @@ def _produto_relevante(titulo, termo, priorizar_console=False):
         "película",
         "pelicula",
         "suporte",
+        "tampa",
         "volante",
         "jogo",
         "jogos",
@@ -227,6 +229,11 @@ def _produto_relevante(titulo, termo, priorizar_console=False):
         "games",
         "gift card",
         "cartao presente",
+        "hd externo",
+        "disco externo",
+        "memoria externa",
+        "leitor drive",
+        "drive de disco",
         "assinatura",
         "playstation plus",
         "ps plus",
@@ -240,7 +247,21 @@ def _produto_relevante(titulo, termo, priorizar_console=False):
         for acessorio in acessorios
     )
 
-    if tem_acessorio:
+    acessorios_que_podem_acompanhar_console = {
+        "controle",
+        "controlador",
+        "controller",
+        "dualsense",
+        "dualshock"
+    }
+    tem_acessorio_exclusivo = any(
+        acessorio in titulo_normalizado
+        and acessorio not in termo_normalizado
+        and acessorio not in acessorios_que_podem_acompanhar_console
+        for acessorio in acessorios
+    )
+
+    if tem_acessorio_exclusivo or (tem_acessorio and not perfil):
         return False
 
     if perfil and not any(
@@ -279,9 +300,6 @@ def _produto_relevante(titulo, termo, priorizar_console=False):
     if perfil and any(
         acessorio in titulo_normalizado
         for acessorio in (
-            "controle",
-            "controlador",
-            "controller",
             "headset",
             "volante",
             "capa",
@@ -323,7 +341,7 @@ def _buscar_amazon(pagina, termo):
         if not preco_elemento.count():
             continue
 
-        titulo = titulo_elemento.first.inner_text().strip()
+        titulo = titulo_elemento.first.text_content().strip()
         href = card.locator("h2").first.evaluate(
             "elemento => elemento.closest('a')?.getAttribute('href')"
         )
@@ -429,6 +447,158 @@ def _buscar_magalu(pagina, termo):
         return []
 
     return []
+
+
+def _normalizar_vendedor_bing(vendedor):
+    vendedor_normalizado = " ".join(
+        re.findall(r"[a-z0-9]+", _normalizar_termo(vendedor))
+    )
+
+    nomes = {
+        "kabum": "KaBuM",
+        "magalu": "Magalu",
+        "magazine luiza": "Magalu",
+        "ponto": "Ponto",
+        "ponto frio": "Ponto",
+        "pontofrio": "Ponto",
+        "carrefour": "Carrefour",
+        "pichau": "Pichau"
+    }
+
+    for nome, loja in nomes.items():
+        if vendedor_normalizado == nome:
+            return loja
+
+    return None
+
+
+def _buscar_bing_shopping(pagina, termo, lojas_alvo):
+    termo_busca = _termo_para_busca(termo)
+    url = f"https://www.bing.com/shop?q={quote_plus(termo_busca)}"
+
+    pagina.goto(url, wait_until="domcontentloaded", timeout=30000)
+    pagina.wait_for_timeout(2500)
+
+    cards = pagina.locator("li.br-item")
+    ofertas = []
+    chaves = set()
+
+    for indice in range(min(cards.count(), 40)):
+        card = cards.nth(indice)
+        titulo_elemento = card.locator(".br-pdItemName")
+        preco_elemento = card.locator(".pd-price")
+        vendedor_elemento = card.locator(".br-sellersCite")
+
+        if not titulo_elemento.count():
+            continue
+
+        if not preco_elemento.count() or not vendedor_elemento.count():
+            continue
+
+        titulo = titulo_elemento.first.text_content().strip()
+        vendedor = vendedor_elemento.first.inner_text().strip()
+        loja = _normalizar_vendedor_bing(vendedor)
+        preco = _parse_preco_brl(preco_elemento.first.inner_text())
+
+        if loja not in lojas_alvo or preco is None:
+            continue
+
+        if not _produto_relevante(
+            titulo,
+            termo,
+            _deve_priorizar_console(termo)
+        ):
+            continue
+
+        href = card.get_attribute("data-url")
+
+        if href:
+            href = urljoin("https://www.bing.com", href)
+        else:
+            href = url
+
+        chave = (loja, titulo.lower(), preco, href)
+
+        if chave in chaves:
+            continue
+
+        chaves.add(chave)
+        ofertas.append({
+            "loja": loja,
+            "titulo": titulo,
+            "preco": preco,
+            "url": href
+        })
+
+    return ofertas
+
+
+def _buscar_carrefour_api(termo):
+    url = "https://www.carrefour.com.br/api/io/_v/api/intelligent-search/product_search"
+    resposta = requests.get(
+        url,
+        params={"query": _termo_para_busca(termo)},
+        headers={
+            "Accept": "application/json",
+            "Referer": "https://www.carrefour.com.br/",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/131.0.0.0 Safari/537.36"
+            )
+        },
+        timeout=20
+    )
+    resposta.raise_for_status()
+    dados = resposta.json()
+
+    ofertas = []
+
+    for produto in dados.get("products", [])[:30]:
+        titulo = produto.get("productName", "").strip()
+
+        if not titulo:
+            continue
+
+        if not _produto_relevante(
+            titulo,
+            termo,
+            _deve_priorizar_console(termo)
+        ):
+            continue
+
+        precos = []
+
+        for item in produto.get("items", []):
+            for vendedor in item.get("sellers", []):
+                oferta = vendedor.get("commertialOffer", {})
+                quantidade = oferta.get("AvailableQuantity", 0) or 0
+
+                if quantidade <= 0:
+                    continue
+
+                for campo in ("spotPrice", "Price"):
+                    preco = oferta.get(campo)
+
+                    if preco and preco > 0:
+                        precos.append(float(preco))
+
+        if not precos:
+            continue
+
+        href = produto.get("link")
+
+        if not href:
+            continue
+
+        ofertas.append({
+            "loja": "Carrefour",
+            "titulo": titulo,
+            "preco": min(precos),
+            "url": urljoin("https://www.carrefour.com.br", href)
+        })
+
+    return ofertas
 
 
 def _parse_preco_oferta(texto):
@@ -566,17 +736,7 @@ def _buscar_ponto(pagina, termo):
 
 
 def _buscar_carrefour(pagina, termo):
-    termo_busca = _termo_para_busca(termo)
-    busca = quote_plus(termo_busca)
-    url = f"https://www.carrefour.com.br/busca?query={busca}"
-
-    return _buscar_loja_generica(
-        pagina,
-        termo,
-        "Carrefour",
-        url,
-        'article, a[href*="/produto/"], a[href*="/p/"]'
-    )
+    return _buscar_carrefour_api(termo)
 
 
 def _buscar_pichau(pagina, termo):
@@ -653,6 +813,51 @@ def _buscar_ofertas_sem_cache(termo):
                         "nome": nome,
                         "status": "indisponivel"
                     })
+                finally:
+                    contexto.close()
+
+            status_por_loja = {
+                loja["nome"]: loja
+                for loja in status_lojas
+            }
+            lojas_para_fallback = {
+                nome
+                for nome in ("KaBuM", "Magalu", "Ponto", "Carrefour", "Pichau")
+                if status_por_loja[nome]["status"] != "encontrada"
+            }
+
+            if lojas_para_fallback:
+                contexto = navegador.new_context(locale="pt-BR")
+                pagina = contexto.new_page()
+
+                try:
+                    ofertas_fallback = _buscar_bing_shopping(
+                        pagina,
+                        termo,
+                        lojas_para_fallback
+                    )
+                    melhores_fallback = {}
+
+                    for oferta in ofertas_fallback:
+                        loja = oferta["loja"]
+                        oferta_atual = melhores_fallback.get(loja)
+
+                        if (
+                            oferta_atual is None
+                            or oferta["preco"] < oferta_atual["preco"]
+                        ):
+                            melhores_fallback[loja] = oferta
+
+                    for loja in lojas_para_fallback:
+                        melhor_oferta = melhores_fallback.get(loja)
+
+                        if melhor_oferta:
+                            melhores_por_loja.append(melhor_oferta)
+                            status_por_loja[loja]["status"] = "encontrada"
+                        else:
+                            status_por_loja[loja]["status"] = "sem_resultado"
+                except Exception as erro:
+                    print(f"[Bing Shopping] indisponível: {erro}")
                 finally:
                     contexto.close()
         finally:
