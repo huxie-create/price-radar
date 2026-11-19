@@ -2,7 +2,6 @@ import json
 import re
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from difflib import get_close_matches
 from threading import Lock
 from time import monotonic
 from urllib.parse import quote, quote_plus, urljoin
@@ -64,56 +63,6 @@ def _normalizar_termo(termo):
     return " ".join(texto.split())
 
 
-_PALAVRAS_DE_PRODUTO = (
-    "playstation",
-    "xbox",
-    "nintendo",
-    "switch",
-    "console",
-    "oled",
-    "slim",
-    "digital",
-    "series",
-    "notebook",
-    "celular",
-    "smartphone",
-    "monitor",
-    "televisao",
-    "fone",
-    "headset",
-    "teclado",
-    "mouse",
-    "airfryer",
-    "geladeira",
-    "cafeteira",
-    "camera",
-    "cameras",
-    "impressora",
-    "memoria",
-    "placa",
-    "video",
-    "ssd",
-    "livro",
-    "livros",
-    "kindle",
-    "tablet",
-    "smartwatch",
-    "videogame",
-    "videogames",
-    "jogo",
-    "jogos",
-    "controle",
-    "controles",
-    "aspirador",
-    "microondas",
-    "bicicleta",
-    "bicicletas",
-    "tenis",
-    "sapato",
-    "sapatos",
-    "cadeira",
-    "mesa"
-)
 
 _CORRECOES_DE_TIPOS = {
     "livrso": "livros",
@@ -124,35 +73,10 @@ _CORRECOES_DE_TIPOS = {
 
 
 def _corrigir_termo(termo):
-    palavras_corrigidas = []
-
-    for palavra in termo.strip().split():
-        palavra_normalizada = _normalizar_termo(palavra)
-
-        if len(palavra_normalizada) < 4 or palavra_normalizada.isdigit():
-            palavras_corrigidas.append(palavra_normalizada)
-            continue
-
-        if palavra_normalizada in _CORRECOES_DE_TIPOS:
-            palavras_corrigidas.append(
-                _CORRECOES_DE_TIPOS[palavra_normalizada]
-            )
-            continue
-
-        correspondencias = get_close_matches(
-            palavra_normalizada,
-            _PALAVRAS_DE_PRODUTO,
-            n=1,
-            cutoff=0.74
-        )
-
-        palavras_corrigidas.append(
-            correspondencias[0]
-            if correspondencias
-            else palavra_normalizada
-        )
-
-    return " ".join(palavras_corrigidas)
+    return " ".join(
+        _CORRECOES_DE_TIPOS.get(palavra, palavra)
+        for palavra in _normalizar_termo(termo).split()
+    )
 
 
 _PERFIS_DE_CONSOLE = {
@@ -303,11 +227,13 @@ def _produto_relevante(titulo, termo, priorizar_console=False):
     if "livro" in titulo_normalizado:
         acessorios.discard("capa")
 
-    tem_acessorio = any(
-        acessorio in titulo_normalizado
-        and acessorio not in termo_normalizado
-        for acessorio in acessorios
-    )
+    if not perfil:
+        # Um acessório pode ser o produto procurado, ou acompanhar o produto.
+        primeiro = titulo_normalizado.split()[:1]
+        return not (
+            primeiro and primeiro[0] in acessorios
+            and primeiro[0] not in termo_normalizado.split()
+        )
 
     acessorios_que_podem_acompanhar_console = {
         "controle",
@@ -323,7 +249,7 @@ def _produto_relevante(titulo, termo, priorizar_console=False):
         for acessorio in acessorios
     )
 
-    if tem_acessorio_exclusivo or (tem_acessorio and not perfil):
+    if tem_acessorio_exclusivo:
         return False
 
     if perfil and not any(
@@ -1041,7 +967,7 @@ def _executar_provedor_em_navegador(buscar_provedor, termo):
 
 
 def _buscar_ofertas_sem_cache(termo):
-    melhores_por_loja = []
+    candidatas = []
     nomes_das_lojas = (
         "Amazon",
         "Americanas",
@@ -1080,11 +1006,7 @@ def _buscar_ofertas_sem_cache(termo):
                 ofertas_da_loja = tarefa.result()
 
                 if ofertas_da_loja:
-                    melhor_oferta = min(
-                        ofertas_da_loja,
-                        key=lambda oferta: oferta["preco"]
-                    )
-                    melhores_por_loja.append(melhor_oferta)
+                    candidatas.extend(ofertas_da_loja)
                     status_por_loja[nome]["status"] = "encontrada"
             except Exception as erro:
                 print(f"[{nome}] indisponível: {erro}")
@@ -1109,30 +1031,22 @@ def _buscar_ofertas_sem_cache(termo):
             print(f"[Bing Shopping HTTP] indisponível: {erro}")
             ofertas_fallback = []
 
-        melhores_fallback = {}
-
         for oferta in ofertas_fallback:
-            loja = oferta["loja"]
-            oferta_atual = melhores_fallback.get(loja)
+            candidatas.append(oferta)
+            status_por_loja[oferta["loja"]]["status"] = "encontrada"
 
-            if (
-                oferta_atual is None
-                or oferta["preco"] < oferta_atual["preco"]
-            ):
-                melhores_fallback[loja] = oferta
-
-        for loja in lojas_para_fallback:
-            melhor_oferta = melhores_fallback.get(loja)
-
-            if melhor_oferta:
-                melhores_por_loja.append(melhor_oferta)
-                status_por_loja[loja]["status"] = "encontrada"
+    ofertas = []
+    vistas = set()
+    for oferta in sorted(candidatas, key=lambda item: (item["preco"], item["url"])):
+        chave = (oferta["loja"], oferta["url"])
+        if chave not in vistas:
+            ofertas.append(oferta)
+            vistas.add(chave)
+        if len(ofertas) == 3:
+            break
 
     return {
-        "ofertas": sorted(
-            melhores_por_loja,
-            key=lambda oferta: oferta["preco"]
-        )[:3],
+        "ofertas": ofertas,
         "lojas": [
             status_por_loja[nome]
             for nome in nomes_das_lojas
