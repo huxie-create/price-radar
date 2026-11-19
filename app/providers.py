@@ -361,6 +361,36 @@ def _buscar_amazon(pagina, termo):
     return ofertas
 
 
+def _buscar_com_promobit(loja, slug, termo, busca_direta):
+    try:
+        diretas = busca_direta()
+        if diretas:
+            return diretas
+    except Exception as erro:
+        print(f"[{loja}] consulta direta indisponível: {erro}")
+
+    base = "https://www.promobit.com.br"
+    resposta = requests.get(f"{base}/promocoes/loja/{slug}/", timeout=6)
+    resposta.raise_for_status()
+    script = BeautifulSoup(resposta.content, "html.parser").select_one("#__NEXT_DATA__")
+    if not script:
+        raise ValueError("Página de promoções sem catálogo")
+    dados = json.loads(script.get_text())["props"]["pageProps"]
+    ofertas = []
+    for item in dados["serverOffers"]["offers"] + dados.get("sidebarFeaturedOffers", []):
+        titulo = item.get("offerTitle", "")
+        preco = item.get("offerPrice")
+        caminho = item.get("offerSlug", "")
+        if (item.get("storeParam") == slug and item.get("offerPriceType") == "NORMAL"
+                and item.get("offerStatusName") in {"APPROVED", "TOP_OFFER", "RECENTS"}
+                and isinstance(preco, (float, int)) and preco > 0
+                and re.fullmatch(r"[\w-]+", caminho)
+                and _produto_relevante(titulo, termo, _deve_priorizar_console(termo))):
+            ofertas.append({"loja": loja, "titulo": titulo, "preco": preco,
+                            "url": f"{base}/oferta/{caminho}/", "fonte": "Promobit"})
+    return ofertas
+
+
 def _buscar_mercado_livre(termo):
     slug = quote("-".join(_termo_para_busca(termo).split()), safe="")
     resposta = requests.get(f"https://lista.mercadolivre.com.br/{slug}", timeout=5)
@@ -1013,10 +1043,12 @@ def _buscar_ofertas_sem_cache(termo):
     # As fontes principais rodam em paralelo. Assim uma loja lenta não segura
     # as outras e a API consegue devolver as primeiras ofertas rapidamente.
     provedores = [
-        ("Mercado Livre", lambda: _buscar_mercado_livre(termo)),
+        ("Mercado Livre", lambda: _buscar_com_promobit(
+            "Mercado Livre", "mercado-livre", termo, lambda: _buscar_mercado_livre(termo))),
         (
             "Amazon",
-            lambda: _executar_provedor_em_navegador(_buscar_amazon, termo)
+            lambda: _buscar_com_promobit("Amazon", "amazon", termo,
+                lambda: _executar_provedor_em_navegador(_buscar_amazon, termo))
         ),
         ("Americanas", lambda: _buscar_americanas_api(termo)),
         ("Carrefour", lambda: _buscar_carrefour_api(termo))
