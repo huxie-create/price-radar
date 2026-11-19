@@ -373,16 +373,27 @@ def _buscar_magalu(pagina, termo):
 
 
 def _parse_preco_oferta(texto):
+    padrao_valor = r"\d{1,3}(?:\.\d{3})*,\d{2}"
+
+    for marcador in ("no pix", "à vista", "a vista"):
+        encontrado = re.search(
+            rf"({padrao_valor})\s*{re.escape(marcador)}",
+            texto,
+            flags=re.IGNORECASE
+        )
+
+        if encontrado:
+            valor = encontrado.group(1)
+            return float(valor.replace(".", "").replace(",", "."))
+
     texto_minusculo = texto.lower()
+    indice = texto_minusculo.rfind("por")
 
-    for marcador in ("por", "à vista", "a vista", "no pix"):
-        indice = texto_minusculo.rfind(marcador)
+    if indice >= 0:
+        preco = _parse_preco_brl(texto[indice:])
 
-        if indice >= 0:
-            preco = _parse_preco_brl(texto[indice:])
-
-            if preco is not None:
-                return preco
+        if preco is not None:
+            return preco
 
     return _parse_preco_brl(texto)
 
@@ -523,12 +534,27 @@ def _buscar_pichau(pagina, termo):
     )
 
 
+def _buscar_americanas(pagina, termo):
+    termo_busca = _termo_para_busca(termo)
+    busca = quote(termo_busca, safe="")
+    url = f"https://www.americanas.com.br/busca/{busca}"
+
+    return _buscar_loja_generica(
+        pagina,
+        termo,
+        "Americanas",
+        url,
+        'a[href$="/p"], a[href*="/p?"]'
+    )
+
+
 def _buscar_ofertas_sem_cache(termo):
     melhores_por_loja = []
     status_lojas = []
 
     provedores = [
         ("Amazon", _buscar_amazon),
+        ("Americanas", _buscar_americanas),
         ("KaBuM", _buscar_kabum),
         ("Magalu", _buscar_magalu),
         ("Ponto", _buscar_ponto),

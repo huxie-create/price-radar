@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from app import main
 from app.providers import (
     _deve_priorizar_console,
+    _parse_preco_oferta,
     _parse_preco_brl,
     _produto_relevante,
     _termo_para_busca
@@ -11,6 +12,17 @@ from app.providers import (
 
 def test_parse_preco_brl():
     assert _parse_preco_brl("Por apenas R$ 1.999,90") == 1999.90
+
+
+def test_parse_preco_oferta_prioriza_preco_no_pix():
+    texto = (
+        "Console PlayStation 5\n"
+        "R$ 4.999,90\n"
+        "R$ 4.606,55 no Pix\n"
+        "em 10x de R$ 484,90"
+    )
+
+    assert _parse_preco_oferta(texto) == 4606.55
 
 
 def test_busca_curta_por_xbox_prioriza_console():

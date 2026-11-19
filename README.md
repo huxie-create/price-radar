@@ -14,7 +14,7 @@ https://price-radar-arrd.onrender.com
 
 ## Destaques
 
-- Busca ofertas em Amazon, KaBuM e Magalu.
+- Busca ofertas em Amazon, Americanas, KaBuM, Magalu, Ponto, Carrefour e Pichau.
 - Mostra a menor oferta encontrada por loja.
 - Informa quando uma loja está indisponível ou sem resultado.
 - Evita resultados duplicados e mantém cache temporário das buscas.
@@ -47,6 +47,7 @@ Fluxo principal:
 O projeto possui provedores para:
 
 - Amazon
+- Americanas
 - KaBuM
 - Magalu
 - Ponto
