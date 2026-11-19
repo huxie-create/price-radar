@@ -13,11 +13,11 @@ from playwright.sync_api import sync_playwright
 
 
 CACHE_TTL_SECONDS = 300
-BROWSER_NAVIGATION_TIMEOUT_MS = 15000
-BROWSER_SELECTOR_TIMEOUT_MS = 8000
-BROWSER_WAIT_MS = 1200
+BROWSER_NAVIGATION_TIMEOUT_MS = 10000
+BROWSER_SELECTOR_TIMEOUT_MS = 4000
+BROWSER_WAIT_MS = 600
 CARREFOUR_TIMEOUT_SECONDS = 5
-BING_TIMEOUT_SECONDS = 8
+BING_TIMEOUT_SECONDS = 5
 AMERICANAS_TIMEOUT_SECONDS = 8
 _cache_resultados = {}
 _cache_lock = Lock()
@@ -1056,17 +1056,18 @@ def _buscar_ofertas_sem_cache(termo):
         for nome in nomes_das_lojas
     }
 
-    # As duas fontes mais confiáveis rodam em paralelo. As demais ficam no
-    # fallback público, evitando abrir várias páginas que costumam bloquear robôs.
+    # As fontes principais rodam em paralelo. Assim uma loja lenta não segura
+    # as outras e a API consegue devolver as primeiras ofertas rapidamente.
     provedores = [
         (
             "Amazon",
             lambda: _executar_provedor_em_navegador(_buscar_amazon, termo)
         ),
-        ("Americanas", lambda: _buscar_americanas_api(termo))
+        ("Americanas", lambda: _buscar_americanas_api(termo)),
+        ("Carrefour", lambda: _buscar_carrefour_api(termo))
     ]
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         tarefas = {
             executor.submit(buscar_provedor): nome
             for nome, buscar_provedor in provedores
@@ -1089,21 +1090,6 @@ def _buscar_ofertas_sem_cache(termo):
                 print(f"[{nome}] indisponível: {erro}")
                 status_por_loja[nome]["status"] = "indisponivel"
 
-    try:
-        ofertas_carrefour = _buscar_carrefour(None, termo)
-
-        if ofertas_carrefour:
-            melhores_por_loja.append(
-                min(
-                    ofertas_carrefour,
-                    key=lambda oferta: oferta["preco"]
-                )
-            )
-            status_por_loja["Carrefour"]["status"] = "encontrada"
-    except Exception as erro:
-        print(f"[Carrefour] indisponível: {erro}")
-        status_por_loja["Carrefour"]["status"] = "indisponivel"
-
     # O Bing também serve como plano B para Amazon e Americanas quando elas
     # bloqueiam o navegador direto. Isso evita mostrar zero ofertas só porque
     # uma fonte principal ficou indisponível naquela tentativa.
@@ -1122,33 +1108,6 @@ def _buscar_ofertas_sem_cache(termo):
         except Exception as erro:
             print(f"[Bing Shopping HTTP] indisponível: {erro}")
             ofertas_fallback = []
-
-        # Mantém o navegador como plano B para quando o Bing bloquear a
-        # requisição HTTP ou devolver uma página sem cards.
-        if not ofertas_fallback:
-            with sync_playwright() as playwright:
-                navegador = playwright.chromium.launch(headless=True)
-
-                try:
-                    contexto = navegador.new_context(locale="pt-BR")
-                    pagina = contexto.new_page()
-                    pagina.set_default_timeout(BROWSER_SELECTOR_TIMEOUT_MS)
-                    pagina.set_default_navigation_timeout(
-                        BROWSER_NAVIGATION_TIMEOUT_MS
-                    )
-
-                    try:
-                        ofertas_fallback = _buscar_bing_shopping(
-                            pagina,
-                            termo,
-                            lojas_para_fallback
-                        )
-                    except Exception as erro:
-                        print(f"[Bing Shopping] indisponível: {erro}")
-                    finally:
-                        contexto.close()
-                finally:
-                    navegador.close()
 
         melhores_fallback = {}
 
