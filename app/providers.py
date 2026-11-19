@@ -178,6 +178,11 @@ def _produto_relevante(titulo, termo, priorizar_console=False):
     ]
 
     tokens_titulo = set(_tokens_de_busca(titulo_normalizado))
+    computadores = r"\b(?:notebook|laptop|computador|desktop|pc|all[ -]in[ -]one)\b"
+    if ("ssd" in palavras and re.search(computadores, titulo_normalizado)
+            and not re.search(computadores, termo_normalizado)
+            and not re.match(r"^(?:disco |unidade )?ssd\b", titulo_normalizado)):
+        return False
     if not perfil and (not palavras or not all(
         tokens_titulo.intersection(_variantes_de_palavra(palavra))
         for palavra in palavras
