@@ -19,6 +19,7 @@ https://price-radar-arrd.onrender.com
 - Corrige erros comuns de digitação em nomes de produtos.
 - Informa quando uma loja está indisponível ou sem resultado.
 - Evita resultados duplicados e mantém cache temporário das buscas.
+- Consulta as fontes principais em paralelo e usa uma única sessão no fallback.
 - Possui API documentada com FastAPI e interface web responsiva.
 
 ## Demonstração

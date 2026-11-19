@@ -1,5 +1,6 @@
 import re
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from difflib import get_close_matches
 from threading import Lock
 from time import monotonic
@@ -10,6 +11,10 @@ from playwright.sync_api import sync_playwright
 
 
 CACHE_TTL_SECONDS = 300
+BROWSER_NAVIGATION_TIMEOUT_MS = 15000
+BROWSER_SELECTOR_TIMEOUT_MS = 8000
+BROWSER_WAIT_MS = 1200
+CARREFOUR_TIMEOUT_SECONDS = 5
 _cache_resultados = {}
 _cache_lock = Lock()
 _busca_lock = Lock()
@@ -317,10 +322,14 @@ def _produto_relevante(titulo, termo, priorizar_console=False):
 def _buscar_amazon(pagina, termo):
     termo_busca = _termo_para_busca(termo)
     url = f"https://www.amazon.com.br/s?k={quote_plus(termo_busca)}"
-    pagina.goto(url, wait_until="domcontentloaded", timeout=30000)
+    pagina.goto(
+        url,
+        wait_until="domcontentloaded",
+        timeout=BROWSER_NAVIGATION_TIMEOUT_MS
+    )
     pagina.wait_for_selector(
         'div[data-component-type="s-search-result"]',
-        timeout=15000
+        timeout=BROWSER_SELECTOR_TIMEOUT_MS
     )
 
     ofertas = []
@@ -373,10 +382,14 @@ def _buscar_kabum(pagina, termo):
     termo_busca = _termo_para_busca(termo)
     busca = quote(termo_busca, safe="").replace("%20", "-")
     url = f"https://www.kabum.com.br/busca/{busca}"
-    pagina.goto(url, wait_until="domcontentloaded", timeout=30000)
+    pagina.goto(
+        url,
+        wait_until="domcontentloaded",
+        timeout=BROWSER_NAVIGATION_TIMEOUT_MS
+    )
     pagina.wait_for_selector(
         'a[href*="/produto/"]',
-        timeout=15000
+        timeout=BROWSER_SELECTOR_TIMEOUT_MS
     )
 
     ofertas = []
@@ -438,8 +451,12 @@ def _buscar_magalu(pagina, termo):
     termo_busca = _termo_para_busca(termo)
     busca = quote(termo_busca, safe="")
     url = f"https://www.magazineluiza.com.br/busca/{busca}/"
-    pagina.goto(url, wait_until="domcontentloaded", timeout=30000)
-    pagina.wait_for_timeout(2500)
+    pagina.goto(
+        url,
+        wait_until="domcontentloaded",
+        timeout=BROWSER_NAVIGATION_TIMEOUT_MS
+    )
+    pagina.wait_for_timeout(BROWSER_WAIT_MS)
 
     titulo_pagina = pagina.title().lower()
 
@@ -476,8 +493,12 @@ def _buscar_bing_shopping(pagina, termo, lojas_alvo):
     termo_busca = _termo_para_busca(termo)
     url = f"https://www.bing.com/shop?q={quote_plus(termo_busca)}"
 
-    pagina.goto(url, wait_until="domcontentloaded", timeout=30000)
-    pagina.wait_for_timeout(2500)
+    pagina.goto(
+        url,
+        wait_until="domcontentloaded",
+        timeout=BROWSER_NAVIGATION_TIMEOUT_MS
+    )
+    pagina.wait_for_timeout(BROWSER_WAIT_MS)
 
     cards = pagina.locator("li.br-item")
     ofertas = []
@@ -547,7 +568,7 @@ def _buscar_carrefour_api(termo):
                 "Chrome/131.0.0.0 Safari/537.36"
             )
         },
-        timeout=20
+        timeout=CARREFOUR_TIMEOUT_SECONDS
     )
     resposta.raise_for_status()
     dados = resposta.json()
@@ -634,8 +655,12 @@ def _buscar_loja_generica(
     url,
     seletor_de_cards
 ):
-    pagina.goto(url, wait_until="domcontentloaded", timeout=30000)
-    pagina.wait_for_timeout(2500)
+    pagina.goto(
+        url,
+        wait_until="domcontentloaded",
+        timeout=BROWSER_NAVIGATION_TIMEOUT_MS
+    )
+    pagina.wait_for_timeout(BROWSER_WAIT_MS)
 
     corpo = pagina.locator("body").inner_text().lower()
 
@@ -660,7 +685,10 @@ def _buscar_loja_generica(
     ):
         return []
 
-    pagina.wait_for_selector(seletor_de_cards, timeout=15000)
+    pagina.wait_for_selector(
+        seletor_de_cards,
+        timeout=BROWSER_SELECTOR_TIMEOUT_MS
+    )
     cards = pagina.locator(seletor_de_cards)
     ofertas = []
     chaves = set()
@@ -767,68 +795,108 @@ def _buscar_americanas(pagina, termo):
     )
 
 
-def _buscar_ofertas_sem_cache(termo):
-    melhores_por_loja = []
-    status_lojas = []
-
-    provedores = [
-        ("Amazon", _buscar_amazon),
-        ("Americanas", _buscar_americanas),
-        ("KaBuM", _buscar_kabum),
-        ("Magalu", _buscar_magalu),
-        ("Ponto", _buscar_ponto),
-        ("Carrefour", _buscar_carrefour),
-        ("Pichau", _buscar_pichau)
-    ]
-
+def _executar_provedor_em_navegador(buscar_provedor, termo):
     with sync_playwright() as playwright:
         navegador = playwright.chromium.launch(headless=True)
 
         try:
-            for nome, buscar_provedor in provedores:
+            contexto = navegador.new_context(locale="pt-BR")
+            pagina = contexto.new_page()
+            pagina.set_default_timeout(BROWSER_SELECTOR_TIMEOUT_MS)
+            pagina.set_default_navigation_timeout(
+                BROWSER_NAVIGATION_TIMEOUT_MS
+            )
+
+            try:
+                return buscar_provedor(pagina, termo)
+            finally:
+                contexto.close()
+        finally:
+            navegador.close()
+
+
+def _buscar_ofertas_sem_cache(termo):
+    melhores_por_loja = []
+    nomes_das_lojas = (
+        "Amazon",
+        "Americanas",
+        "KaBuM",
+        "Magalu",
+        "Ponto",
+        "Carrefour",
+        "Pichau"
+    )
+    status_por_loja = {
+        nome: {"nome": nome, "status": "sem_resultado"}
+        for nome in nomes_das_lojas
+    }
+
+    # As duas fontes mais confiáveis rodam em paralelo. As demais ficam no
+    # fallback público, evitando abrir várias páginas que costumam bloquear robôs.
+    provedores = [
+        ("Amazon", _buscar_amazon),
+        ("Americanas", _buscar_americanas)
+    ]
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        tarefas = {
+            executor.submit(
+                _executar_provedor_em_navegador,
+                buscar_provedor,
+                termo
+            ): nome
+            for nome, buscar_provedor in provedores
+        }
+
+        for tarefa in as_completed(tarefas):
+            nome = tarefas[tarefa]
+
+            try:
+                ofertas_da_loja = tarefa.result()
+
+                if ofertas_da_loja:
+                    melhor_oferta = min(
+                        ofertas_da_loja,
+                        key=lambda oferta: oferta["preco"]
+                    )
+                    melhores_por_loja.append(melhor_oferta)
+                    status_por_loja[nome]["status"] = "encontrada"
+            except Exception as erro:
+                print(f"[{nome}] indisponível: {erro}")
+                status_por_loja[nome]["status"] = "indisponivel"
+
+    try:
+        ofertas_carrefour = _buscar_carrefour(None, termo)
+
+        if ofertas_carrefour:
+            melhores_por_loja.append(
+                min(
+                    ofertas_carrefour,
+                    key=lambda oferta: oferta["preco"]
+                )
+            )
+            status_por_loja["Carrefour"]["status"] = "encontrada"
+    except Exception as erro:
+        print(f"[Carrefour] indisponível: {erro}")
+        status_por_loja["Carrefour"]["status"] = "indisponivel"
+
+    lojas_para_fallback = {
+        nome
+        for nome in ("KaBuM", "Magalu", "Ponto", "Carrefour", "Pichau")
+        if status_por_loja[nome]["status"] != "encontrada"
+    }
+
+    if lojas_para_fallback:
+        with sync_playwright() as playwright:
+            navegador = playwright.chromium.launch(headless=True)
+
+            try:
                 contexto = navegador.new_context(locale="pt-BR")
                 pagina = contexto.new_page()
-
-                try:
-                    ofertas_da_loja = buscar_provedor(pagina, termo)
-
-                    if ofertas_da_loja:
-                        melhor_oferta = min(
-                            ofertas_da_loja,
-                            key=lambda oferta: oferta["preco"]
-                        )
-                        melhores_por_loja.append(melhor_oferta)
-                        status_lojas.append({
-                            "nome": nome,
-                            "status": "encontrada"
-                        })
-                    else:
-                        status_lojas.append({
-                            "nome": nome,
-                            "status": "sem_resultado"
-                        })
-                except Exception as erro:
-                    print(f"[{nome}] indisponível: {erro}")
-                    status_lojas.append({
-                        "nome": nome,
-                        "status": "indisponivel"
-                    })
-                finally:
-                    contexto.close()
-
-            status_por_loja = {
-                loja["nome"]: loja
-                for loja in status_lojas
-            }
-            lojas_para_fallback = {
-                nome
-                for nome in ("KaBuM", "Magalu", "Ponto", "Carrefour", "Pichau")
-                if status_por_loja[nome]["status"] != "encontrada"
-            }
-
-            if lojas_para_fallback:
-                contexto = navegador.new_context(locale="pt-BR")
-                pagina = contexto.new_page()
+                pagina.set_default_timeout(BROWSER_SELECTOR_TIMEOUT_MS)
+                pagina.set_default_navigation_timeout(
+                    BROWSER_NAVIGATION_TIMEOUT_MS
+                )
 
                 try:
                     ofertas_fallback = _buscar_bing_shopping(
@@ -836,16 +904,6 @@ def _buscar_ofertas_sem_cache(termo):
                         termo,
                         lojas_para_fallback
                     )
-
-                    if not ofertas_fallback:
-                        termo_alternativo = _corrigir_termo(termo)
-
-                        if _termo_para_busca(termo) != termo_alternativo:
-                            ofertas_fallback = _buscar_bing_shopping(
-                                pagina,
-                                termo_alternativo,
-                                lojas_para_fallback
-                            )
 
                     melhores_fallback = {}
 
@@ -865,21 +923,22 @@ def _buscar_ofertas_sem_cache(termo):
                         if melhor_oferta:
                             melhores_por_loja.append(melhor_oferta)
                             status_por_loja[loja]["status"] = "encontrada"
-                        else:
-                            status_por_loja[loja]["status"] = "sem_resultado"
                 except Exception as erro:
                     print(f"[Bing Shopping] indisponível: {erro}")
                 finally:
                     contexto.close()
-        finally:
-            navegador.close()
+            finally:
+                navegador.close()
 
     return {
         "ofertas": sorted(
             melhores_por_loja,
             key=lambda oferta: oferta["preco"]
         )[:3],
-        "lojas": status_lojas,
+        "lojas": [
+            status_por_loja[nome]
+            for nome in nomes_das_lojas
+        ],
         "termo_corrigido": _corrigir_termo(termo)
     }
 
